@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { reasoningEfforts } from "./reasoning";
 export const kindSchema = z.enum(["word", "idiom", "phrase", "construction"]);
 export const levelSchema = z.enum(["B1", "B2", "C1", "C2"]);
 const short = z.string().trim().min(1).max(300);
@@ -130,6 +131,8 @@ export const dailySchema = z.object({
   prompt: z.string().min(1).max(1000),
 });
 export const settingsSchema = z.object({
+  everyday_reasoning: z.enum(reasoningEfforts).default("low"),
+  advanced_reasoning: z.enum(reasoningEfforts).default("medium"),
   level: levelSchema,
   model: z.string().max(200),
   theme: z.enum(["light", "dark"]),

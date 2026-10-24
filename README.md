@@ -46,6 +46,8 @@ If sign-in previously sent you to `localhost`, open `http://127.0.0.1:<port>/?vi
 
 The canonical origin comes from the validated `Host` header (and optional `MARGIN_ORIGIN` port constraint), never Next.js's normalized request origin or forwarded headers. It is used for authorization, the exact code-exchange URI, host-only cookies, and both success and error redirects. Proxy alias requests are internally rewritten to `/auth/canonical`, which emits an absolute redirect while preserving the path and query; this avoids Next.js relativizing a proxy redirect against the server's bound IP. Callback validation additionally checks the pending transaction's original port.
 
+Settings → Your tutor provides independent **Everyday reasoning** (Light / API `low`) and **Advanced reasoning** (Medium) preferences. Definitions and daily discoveries use Everyday; comprehension, writing evaluation, article analysis, mixed practice, and advanced grammar use Advanced. Available efforts come from the connected account’s model catalog; unsupported or unverified settings block requests with a clear error. The request sends `reasoning.effort`, and AI cache keys include the selected reasoning configuration. Old preferences acquire the defaults automatically.
+
 ## A connected learning workflow
 
 1. **Readings:** paste an article or passage; optional author and source URL. No reading material is preloaded. Articles remain plain text, which preserves exact source positions and avoids running pasted HTML.

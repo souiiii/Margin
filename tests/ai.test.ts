@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
 vi.mock("@/lib/auth", () => ({
   getModels: async () => [
-    { slug: "available-model", display_name: "Available" },
+    {
+      slug: "available-model",
+      display_name: "Available",
+      reasoning_efforts: ["low", "medium", "high"],
+    },
   ],
   authEpoch: () => 0,
   openaiFetch: vi.fn(),
@@ -12,6 +16,7 @@ vi.mock("@/lib/auth", () => ({
 import { openaiFetch } from "@/lib/auth";
 import { generate, parseSSE, validateExercises } from "@/lib/ai";
 import { rows } from "@/lib/db";
+import { saveSettings, defaultSettings } from "@/lib/store";
 import { exercisesSchema } from "@/lib/schemas";
 function stream(events: unknown[], chunkSize = 7) {
   const encoded = new TextEncoder().encode(
@@ -66,6 +71,7 @@ describe("Responses stream and output quality", () => {
       model: "available-model",
       store: false,
       stream: true,
+      reasoning: { effort: "low" },
     });
     for (const unsupported of [
       "temperature",
@@ -74,6 +80,53 @@ describe("Responses stream and output quality", () => {
       "background",
     ])
       expect(request).not.toHaveProperty(unsupported);
+  });
+  it("sends independent efforts and separates cached results when preferences change", async () => {
+    const send = () =>
+      new Response(
+        stream([
+          { type: "response.output_text.delta", delta: '{"meaning":"routed"}' },
+          { type: "response.completed" },
+        ]),
+      );
+    vi.mocked(openaiFetch).mockImplementation(async () => send());
+    await saveSettings({
+      ...defaultSettings,
+      everyday_reasoning: "low",
+      advanced_reasoning: "medium",
+    });
+    const run = (profile: "everyday" | "advanced") =>
+      generate(
+        "reasoning-cache-check",
+        {},
+        z.object({ meaning: z.string() }),
+        new AbortController().signal,
+        () => {},
+        undefined,
+        profile,
+      );
+    await run("everyday");
+    await run("everyday");
+    expect(openaiFetch).toHaveBeenCalledTimes(1);
+    await run("advanced");
+    expect(
+      JSON.parse(vi.mocked(openaiFetch).mock.calls[1][1]!.body as string)
+        .reasoning,
+    ).toEqual({ effort: "medium" });
+    await saveSettings({
+      ...defaultSettings,
+      everyday_reasoning: "high",
+      advanced_reasoning: "medium",
+    });
+    await run("everyday");
+    expect(
+      JSON.parse(vi.mocked(openaiFetch).mock.calls[2][1]!.body as string)
+        .reasoning,
+    ).toEqual({ effort: "high" });
+    await saveSettings({ ...defaultSettings, everyday_reasoning: "max" });
+    await expect(run("everyday")).rejects.toThrow("does not support");
+    expect(openaiFetch).toHaveBeenCalledTimes(3);
+    await saveSettings(defaultSettings);
   });
   it("never saves incomplete or failed streamed results", async () => {
     const before = await rows("SELECT key FROM ai_cache");

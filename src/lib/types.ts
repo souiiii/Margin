@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from "./reasoning";
 export type ItemKind = "word" | "idiom" | "phrase" | "construction";
 export type Skill =
   "vocabulary" | "grammar" | "comprehension" | "writing" | "word-choice";
@@ -101,6 +102,8 @@ export interface Review {
   created_at: string;
 }
 export interface Settings {
+  everyday_reasoning: ReasoningEffort;
+  advanced_reasoning: ReasoningEffort;
   level: Level;
   model: string;
   theme: "light" | "dark";
@@ -109,6 +112,7 @@ export interface Settings {
 export interface Model {
   slug: string;
   display_name: string;
+  reasoning_efforts?: ReasoningEffort[] | null;
 }
 export interface AuthStatus {
   active: string | null;

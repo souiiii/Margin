@@ -17,6 +17,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { dataDir } from "./db";
 import { normalizeLoopbackOrigin } from "./loopback";
 import { AppError } from "./errors";
+import { modelEfforts } from "./reasoning";
 import type { AuthStatus, Model } from "./types";
 const ISSUER = "https://auth.openai.com";
 const RESOURCE = "https://api.openai.com/v1";
@@ -503,7 +504,12 @@ export async function openaiFetch(
 export async function getModels(refresh = false): Promise<Model[]> {
   const a = await accountForInference();
   const cached = runtime.models.get(a.id);
-  if (!refresh && cached && Date.now() - cached.at < 300000)
+  if (
+    !refresh &&
+    cached &&
+    cached.models.every((m: Model) => "reasoning_efforts" in m) &&
+    Date.now() - cached.at < 300000
+  )
     return cached.models;
   const r = await openaiFetch("models");
   if (!r.ok) throw await providerError(r);
@@ -521,7 +527,11 @@ export async function getModels(refresh = false): Promise<Model[]> {
         typeof m.slug === "string" &&
         typeof m.display_name === "string",
     )
-    .map((m: Model) => ({ slug: m.slug, display_name: m.display_name }));
+    .map((m: Model & { supported_reasoning_levels?: unknown }) => ({
+      slug: m.slug,
+      display_name: m.display_name,
+      reasoning_efforts: modelEfforts(m.supported_reasoning_levels),
+    }));
   if (!models.length)
     throw new AppError(
       "No models are currently available for this ChatGPT account.",

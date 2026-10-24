@@ -15,6 +15,11 @@ import {
 } from "lucide-react";
 import { useMargin } from "./context";
 import { Button, Tag, ErrorBox, Dialog } from "./ui";
+import {
+  reasoningEfforts,
+  effortLabels,
+  type ReasoningEffort,
+} from "@/lib/reasoning";
 import { api } from "@/lib/client";
 import type { Model, Settings as Preferences } from "@/lib/types";
 export function Settings() {
@@ -35,6 +40,20 @@ export function Settings() {
     [confirmation, setConfirmation] = useState("");
   const input = useRef<HTMLInputElement>(null);
   const active = data.auth.accounts.find((a) => a.id === data.auth.active);
+  const selectedModel =
+    models.find((m) => m.slug === data.settings.model) ||
+    (!data.settings.model ? models[0] : undefined);
+  const supported = selectedModel?.reasoning_efforts;
+  const reasoningWarning = selectedModel
+    ? !supported
+      ? "This model’s reasoning support is unavailable. Refresh models or choose another model."
+      : [
+            data.settings.everyday_reasoning,
+            data.settings.advanced_reasoning,
+          ].some((e) => !supported.includes(e))
+        ? "A saved reasoning effort is unsupported by this model. Choose a supported setting before generating."
+        : ""
+    : "";
   async function loadModels(refresh = false) {
     setModelLoading(true);
     setModelError("");
@@ -279,10 +298,17 @@ export function Settings() {
             value={
               models.some((m) => m.slug === data.settings.model)
                 ? data.settings.model
-                : models[0]?.slug || ""
+                : data.settings.model || models[0]?.slug || ""
             }
             onChange={(e) => update({ model: e.target.value })}
           >
+            {data.settings.model &&
+              models.length > 0 &&
+              !models.some((m) => m.slug === data.settings.model) && (
+                <option value={data.settings.model} disabled>
+                  Saved model · unavailable
+                </option>
+              )}
             {models.length ? (
               models.map((m) => (
                 <option value={m.slug} key={m.slug}>
@@ -297,6 +323,49 @@ export function Settings() {
           </select>
         </div>
         {modelError && <ErrorBox message={modelError} />}
+        <div className="tutor-reasoning form-grid">
+          {(
+            [
+              [
+                "everyday_reasoning",
+                "Everyday reasoning",
+                "Words, definitions & simple practice.",
+              ],
+              [
+                "advanced_reasoning",
+                "Advanced reasoning",
+                "Comprehension, writing & deeper analysis.",
+              ],
+            ] as const
+          ).map(([key, label, hint]) => (
+            <label key={key} htmlFor={key}>
+              {label}
+              <select
+                id={key}
+                aria-label={label}
+                disabled={
+                  saving || busy || !models.length || !supported?.length
+                }
+                value={data.settings[key]}
+                onChange={(e) =>
+                  update({ [key]: e.target.value as ReasoningEffort })
+                }
+              >
+                {reasoningEfforts.map((e) => (
+                  <option key={e} value={e} disabled={!supported?.includes(e)}>
+                    {effortLabels[e]}
+                    {supported && !supported.includes(e)
+                      ? " · unsupported"
+                      : ""}
+                  </option>
+                ))}
+              </select>
+              <span className="quiet-label">{hint}</span>
+            </label>
+          ))}
+        </div>
+        {reasoningWarning && <ErrorBox message={reasoningWarning} />}
+
         <div className="setting-row">
           <div>
             <label htmlFor="level">Working level</label>

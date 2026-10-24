@@ -17,6 +17,8 @@ import type {
   Daily,
 } from "./types";
 export const defaultSettings: Settings = {
+  everyday_reasoning: "low",
+  advanced_reasoning: "medium",
   level: "B2",
   model: "",
   theme: "light",

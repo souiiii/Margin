@@ -4343,3 +4343,19 @@ kbd {
 [data-theme="dark"] .chatgpt-button img {
   filter: invert(1);
 }
+
+.tutor-reasoning {
+  padding: 18px 0 20px;
+  border-bottom: 1px solid var(--line);
+  gap: 20px;
+}
+.tutor-reasoning label {
+  font-size: 12px;
+}
+.tutor-reasoning select {
+  font-size: 12px;
+}
+.tutor-reasoning .quiet-label {
+  font-size: 10px;
+  font-weight: 400;
+}
