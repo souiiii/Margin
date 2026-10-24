@@ -1,17 +1,7 @@
+import { loopbackOrigin } from "./loopback";
 import { AppError } from "./errors";
 export function guard(request: Request, callback = false) {
-  const host = request.headers.get("host") || "";
-  const origin = `http://${host}`;
-  const expected = process.env.MARGIN_ORIGIN;
-  if (
-    !/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host) ||
-    (expected && new URL(expected).host !== host)
-  )
-    throw new AppError(
-      "Margin is available only on this computer.",
-      403,
-      "local_only",
-    );
+  const origin = loopbackOrigin(request);
   if (!callback && request.headers.get("sec-fetch-site") === "cross-site")
     throw new AppError(
       "Open Margin directly on this computer.",

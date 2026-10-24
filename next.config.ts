@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 const config: NextConfig = {
   serverExternalPackages: ["@electric-sql/pglite", "pg"],
   poweredByHeader: false,
+  // Preserve the proxy rewrite URL; redirect destinations are constructed
+  // separately from the validated Host because Next normalizes loopback URLs.
+  skipProxyUrlNormalize: true,
   async headers() {
     return [
       {

@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:oauth": "playwright test --config playwright.oauth.config.ts",
     "check": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {

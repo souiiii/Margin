@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeAll } from "vitest";
 import { readFile, stat } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import path from "node:path";
 const keys = vi.hoisted(() => ({
   publicKey: undefined as CryptoKey | undefined,
@@ -101,10 +101,50 @@ describe("official ChatGPT OAuth", () => {
   it("rejects callbacks from another browser before exchanging a code", async () => {
     const a = await attempt();
     const fetch = vi.mocked(globalThis.fetch);
-    await expect(finishAuth(a.params, "different-browser")).rejects.toThrow(
-      "another browser",
-    );
+    await expect(
+      finishAuth(a.params, "different-browser", "http://127.0.0.1:3000"),
+    ).rejects.toThrow("another browser");
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it("binds the callback and code exchange to the canonical origin and exact pending port", async () => {
+    const browser = randomUUID();
+    const url = new URL(await beginAuth("http://localhost:54321", browser));
+    expect(url.searchParams.get("redirect_uri")).toBe(
+      "http://127.0.0.1:54321/auth/callback",
+    );
+    const client = "oaiapp_port_test";
+    const token = await signed(url.searchParams.get("nonce")!, client);
+    const fetch = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        Response.json({
+          access_token: "test-access",
+          refresh_token: "test-refresh",
+          id_token: token,
+          scope: "openid chatgpt.tokens.use.direct",
+          expires_in: 3600,
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const params = new URLSearchParams({
+      state: url.searchParams.get("state")!,
+      code: "port-test-code",
+      client_id: client,
+    });
+    await expect(
+      finishAuth(params, browser, "http://127.0.0.1:3000"),
+    ).rejects.toThrow("another local port");
+    expect(fetch).not.toHaveBeenCalled();
+    await finishAuth(params, browser, "http://127.0.0.1:54321");
+    const exchanged = new URLSearchParams(
+      fetch.mock.calls[0][1]?.body?.toString(),
+    );
+    expect(exchanged.get("redirect_uri")).toBe(
+      url.searchParams.get("redirect_uri"),
+    );
+    const verifier = exchanged.get("code_verifier")!;
+    expect(createHash("sha256").update(verifier).digest("base64url")).toBe(
+      url.searchParams.get("code_challenge"),
+    );
   });
   it("rejects a signed ID token with the wrong nonce or audience, or expired token", async () => {
     for (const overrides of [
@@ -113,12 +153,14 @@ describe("official ChatGPT OAuth", () => {
       { expired: true },
     ]) {
       const a = await attempt(overrides);
-      await expect(finishAuth(a.params, a.browser)).rejects.toThrow();
+      await expect(
+        finishAuth(a.params, a.browser, "http://127.0.0.1:3000"),
+      ).rejects.toThrow();
     }
   });
   it("validates identity, retains issued registration, and keeps credentials out of public status", async () => {
     const a = await attempt();
-    await finishAuth(a.params, a.browser);
+    await finishAuth(a.params, a.browser, "http://127.0.0.1:3000");
     const status = await authStatus();
     expect(
       status.accounts.find((x) => x.id === status.active)?.planEnabled,
@@ -140,11 +182,13 @@ describe("official ChatGPT OAuth", () => {
     expect(returning.searchParams.get("client_id")).toBe(a.clientId);
     expect(returning.searchParams.has("agent_name_hint")).toBe(false);
     expect(returning.searchParams.has("id_token_hint")).toBe(true);
-    await expect(finishAuth(a.params, a.browser)).rejects.toThrow("expired");
+    await expect(
+      finishAuth(a.params, a.browser, "http://127.0.0.1:3000"),
+    ).rejects.toThrow("expired");
   });
   it("retains signed-in identity without plan permission and stops inference", async () => {
     const a = await attempt({ scope: "openid profile email" });
-    await finishAuth(a.params, a.browser);
+    await finishAuth(a.params, a.browser, "http://127.0.0.1:3000");
     const status = await authStatus();
     expect(
       status.accounts.find((x) => x.id === status.active)?.planEnabled,

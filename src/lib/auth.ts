@@ -15,6 +15,7 @@ import {
 import path from "node:path";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { dataDir } from "./db";
+import { normalizeLoopbackOrigin } from "./loopback";
 import { AppError } from "./errors";
 import type { AuthStatus, Model } from "./types";
 const ISSUER = "https://auth.openai.com";
@@ -148,7 +149,7 @@ export async function beginAuth(
     nonce: randomBytes(32).toString("base64url"),
     verifier: randomBytes(48).toString("base64url"),
     browser,
-    redirect: `${origin}/auth/callback`,
+    redirect: `${normalizeLoopbackOrigin(origin)}/auth/callback`,
     clientId: account?.client_id,
     accountId: account?.id,
     expires: Date.now() + 600000,
@@ -179,6 +180,7 @@ export async function beginAuth(
 export async function finishAuth(
   params: URLSearchParams,
   browser: string | undefined,
+  origin: string,
 ) {
   const key = params.get("state") || "";
   const p = runtime.pending.get(key);
@@ -190,6 +192,12 @@ export async function finishAuth(
   )
     throw new AppError(
       "Sign-in expired or belongs to another browser. Start again.",
+      400,
+      "invalid_state",
+    );
+  if (p.redirect !== `${normalizeLoopbackOrigin(origin)}/auth/callback`)
+    throw new AppError(
+      "Sign-in belongs to another local port. Start again.",
       400,
       "invalid_state",
     );

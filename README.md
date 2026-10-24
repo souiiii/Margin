@@ -20,7 +20,7 @@ npm run build
 npm start
 ```
 
-Run **one instance** against a local PGlite directory at a time. Stop development before starting production. To use another port, run `npm run dev -- --port 3001` or `npm start -- --port 3001`. The OAuth callback uses that port automatically. If `MARGIN_ORIGIN` is configured, update it to match.
+Run **one instance** against a local PGlite directory at a time. Stop development before starting production. To use another port, run `npm run dev -- --port 3001` or `npm start -- --port 3001`. The OAuth callback uses that port automatically. If `MARGIN_ORIGIN` is configured, update it to match. A legacy `http://localhost:<port>` setting is accepted as an alias, but all emitted URLs use `http://127.0.0.1:<port>`. Other hosts, schemes, credentials, URL paths, and mismatched ports are rejected.
 
 ## Connect ChatGPT
 
@@ -39,6 +39,12 @@ The integration follows the official [registration guide](https://developers.ope
 Account eligibility, serving-region restrictions, rollout availability, and limits are controlled by OpenAI. See [current limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations). In [ChatGPT Settings → Usage](https://chatgpt.com/settings/usage), keep extra credit use **disabled** if you want subscription-only use; Margin cannot override that account setting. Usage-limit errors pause the affected request and expose recovery links.
 
 **Live account verification:** OAuth security, model selection, and Responses behavior have automated tests using local signed tokens and simulated streams. A real browser authorisation and a live inference must be completed using your own ChatGPT account; no account credentials were used during development.
+
+### Redirect recovery
+
+If sign-in previously sent you to `localhost`, open `http://127.0.0.1:<port>/?view=settings`. A successful authorization may already have saved your account before the old post-login redirect failed. Reconnect only if Settings still needs it. Restart the server after configuration changes, and begin a fresh sign-in if an in-progress transaction expired during the restart.
+
+The canonical origin comes from the validated `Host` header (and optional `MARGIN_ORIGIN` port constraint), never Next.js's normalized request origin or forwarded headers. It is used for authorization, the exact code-exchange URI, host-only cookies, and both success and error redirects. Proxy alias requests are internally rewritten to `/auth/canonical`, which emits an absolute redirect while preserving the path and query; this avoids Next.js relativizing a proxy redirect against the server's bound IP. Callback validation additionally checks the pending transaction's original port.
 
 ## A connected learning workflow
 
@@ -96,9 +102,12 @@ npm run typecheck
 npm test
 npm run build
 npm run test:e2e
+npm run test:oauth
 ```
 
 The browser test launches an isolated production server on port 3007 and uses installed Google Chrome. Test content lives in a temporary database, never your library. Install Chrome or change the Playwright project channel if needed. It checks adding/reading/highlighting/annotating, collection, independent review states, saved preferences, export/import, disconnected-AI recovery, keyboard search, and mobile navigation.
+
+The dedicated OAuth browser suite runs the production app on ports 3008 and 3009 with isolated temporary libraries. It executes the real proxy, start/callback routes, code exchange, JWT verification, cookies, persistence, and post-login UI, replacing only the external provider boundary with signed test credentials. Its provider verifies the exact redirect URI and PKCE challenge. It covers success, denial, token exchange failures, bad nonce/state, missing cookies, callback replay, localhost aliases, start failures, and a legacy localhost origin configuration. The server-side provider fixture is loaded only through the test process’s `NODE_OPTIONS`; no production auth bypass or configurable provider endpoint exists. These deterministic tests do not substitute for authorizing your real ChatGPT account.
 
 Unit and integration tests cover OAuth security with genuinely signed local test tokens, terminal stream handling, grounding validation, transaction rollback, deduplication, independent scheduling, and backup corruption/referential checks. The repository contains no seeded learning records or test authentication bypass.
 

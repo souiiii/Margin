@@ -7,6 +7,7 @@ const dir =
   mkdtempSync(path.join(os.tmpdir(), "margin-browser-"));
 export default defineConfig({
   testDir: "./e2e",
+  testIgnore: "oauth.spec.ts",
   fullyParallel: false,
   workers: 1,
   timeout: 45000,
