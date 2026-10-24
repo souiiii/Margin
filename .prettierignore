@@ -1,0 +1,6 @@
+node_modules
+.next
+.margin
+.impeccable/review
+package-lock.json
+public/fonts

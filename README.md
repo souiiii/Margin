@@ -1,0 +1,114 @@
+# Margin
+
+A local English learning space built with Next.js, React, TypeScript, and PostgreSQL. Add your own readings, collect language in context, and practise with your ChatGPT account.
+
+## Run on your Mac
+
+Requires Node.js **22.12 or newer** and npm. Dependencies and fonts are already included in this checkout's setup; for a fresh clone:
+
+```sh
+npm install
+npm run dev
+```
+
+Open **http://127.0.0.1:3000**. Margin binds to loopback. `localhost` redirects to `127.0.0.1` so OAuth cookies and callbacks use one host.
+
+For the production build:
+
+```sh
+npm run build
+npm start
+```
+
+Run **one instance** against a local PGlite directory at a time. Stop development before starting production. To use another port, run `npm run dev -- --port 3001` or `npm start -- --port 3001`. The OAuth callback uses that port automatically. If `MARGIN_ORIGIN` is configured, update it to match.
+
+## Connect ChatGPT
+
+Open **Settings → Continue with ChatGPT**. Authorise Margin and grant permission to use your ChatGPT plan. The browser returns to `http://127.0.0.1:<port>/auth/callback`. Margin dynamically registers its public OAuth client; no client secret or API key is required.
+
+The integration follows the official [registration guide](https://developers.openai.com/siwc/token-sharing-open-source/sign-in), [account/session guide](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions), and [model/inference guide](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference):
+
+- Stable host ID; fresh state, nonce, and PKCE for each browser-bound sign-in attempt.
+- Issued client IDs retained per verified account and reused for reconnection. Multiple account registrations stay separate.
+- ID-token signature, issuer, audience, expiry, and nonce are validated with OpenAI's JWKS.
+- Rotating refresh tokens are refreshed serially and replaced atomically.
+- Model choices come from `GET https://api.openai.com/v1/models` using the selected account. Visible catalog order is retained, with the first available model as the default.
+- Inference uses only `POST https://api.openai.com/v1/responses`, with OAuth bearer authentication, `store: false`, and `stream: true`. No ChatGPT internal endpoints or API-key billing fallback exist.
+- Only `response.completed` finishes a request successfully. Interrupted streams, incomplete responses, usage limits, and late stream errors are handled separately. No automatic repeated inference or paid fallback occurs.
+
+Account eligibility, serving-region restrictions, rollout availability, and limits are controlled by OpenAI. See [current limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations). In [ChatGPT Settings → Usage](https://chatgpt.com/settings/usage), keep extra credit use **disabled** if you want subscription-only use; Margin cannot override that account setting. Usage-limit errors pause the affected request and expose recovery links.
+
+**Live account verification:** OAuth security, model selection, and Responses behavior have automated tests using local signed tokens and simulated streams. A real browser authorisation and a live inference must be completed using your own ChatGPT account; no account credentials were used during development.
+
+## A connected learning workflow
+
+1. **Readings:** paste an article or passage; optional author and source URL. No reading material is preloaded. Articles remain plain text, which preserves exact source positions and avoids running pasted HTML.
+2. **Notice language:** ask Margin for a selective, level-appropriate set of expressions. Or select text yourself and choose **Explore** or **Highlight**. Collected expressions retain source context; highlights support editable notes.
+3. **Between the lines:** generate questions beneath the original reading. Choose difficulty, type, and count; generate more without repeating existing questions. Questions and evaluations must contain exact source evidence before saving.
+4. **Language bank:** search meanings, terms, notes, or collocations; add manually or with AI. Explore usage, register, collocations, related expressions, and source context. Browser speech synthesis can pronounce expressions.
+5. **Practice:** generate grammar, vocabulary, comprehension, sentence, writing, and word-choice tasks. Saved language, recent mistakes, previous questions, and skill performance inform new sets. Open tasks are evaluated with explanations and improved answers; unfinished sessions resume.
+6. **Review:** recognition uses honest self-rating; production asks for your own sentence and AI feedback. The schedules are independent. A failed recall returns after 10 minutes; successful reviews expand intervals up to a year. This is a transparent, SM-2-inspired scheduler, not FSRS.
+7. **Today:** generate an idiom, related discoveries, and a short writing prompt. Outputs persist for the selected local day. Previously saved language and recent readings are surfaced without fabricated activity.
+8. **Progress:** real activity, answer quality by skill, recorded misunderstandings, and independent recognition/production retention. Seven-day review intervals are a practice signal, not a fluency claim.
+
+Use **⌘K** (Ctrl+K on other platforms) to find readings and expressions. Reading controls change type size; Settings offers daylight/after-hours themes. Anonymous Pro, Literata, and Inter are self-hosted with their OFL licenses.
+
+The **fixed grammar curriculum is intentionally empty**. `curriculum_units` establishes a versioned integration point; no curriculum has been generated or seeded. On-demand grammar practice works independently.
+
+## Storage and recovery
+
+By default, persistent PGlite PostgreSQL lives in `.margin/data/`. There is no separate database service to install.
+
+```text
+.margin/
+  data/                 # PostgreSQL data; one server process at a time
+  private/accounts.json # Owner-only OAuth credentials and host identity
+  backups/              # Automatic snapshots made before imports
+```
+
+The private directory uses mode `0700`; credential files use `0600`, atomic replacement, and fsync. Tokens never enter browser storage or learning backups. `.margin/` and `.env*` are ignored by Git. The app has no telemetry, external font requests, or third-party browser scripts. The local app trusts the owner of this Mac; it is not a multi-user internet service.
+
+Use **Settings → Export library** regularly. The portable JSON export contains every learning table, settings, useful AI caches, its format version, export time, and a SHA-256 checksum. It excludes credentials. Export is read in a database transaction.
+
+**Import backup** accepts files up to 250 MB and validates the checksum, schema, record uniqueness, and source references before changing any data. Choose **Merge** to add records and update matching IDs, or **Replace** to restore the exact exported library (requires typing `REPLACE`). Both create an automatic pre-import snapshot and apply data in one transaction. A failed import rolls back. Conflicting expression IDs from another library are rejected during Merge; export your current library and use Replace if that is the desired restore.
+
+To recover a pre-import state, import a JSON file from `.margin/backups/` with Replace. Your ChatGPT connection remains separate. To move to another Mac, export/import learning data and sign in again there so the new host receives its own identity. Avoid copying a live PGlite directory; use JSON export or stop the server first.
+
+### Optional Neon / PostgreSQL
+
+Copy `.env.example` to `.env.local` and set:
+
+```dotenv
+DATABASE_URL=postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require
+```
+
+Margin uses the same SQL schema through `pg` against PostgreSQL, including Neon. TLS follows the connection string; do not disable certificate validation. **Export your local library before switching**, restart with `DATABASE_URL`, then import the backup into the empty remote database. Data is not moved automatically. ChatGPT credentials still remain local. This adapter has not been tested against a live Neon account.
+
+Optional environment variables:
+
+- `MARGIN_DATA_DIR`: absolute directory for local storage, credentials, and snapshots.
+- `MARGIN_ORIGIN`: exact loopback origin, e.g. `http://127.0.0.1:3000`; adds host enforcement.
+
+## Verification
+
+```sh
+npm run typecheck
+npm test
+npm run build
+npm run test:e2e
+```
+
+The browser test launches an isolated production server on port 3007 and uses installed Google Chrome. Test content lives in a temporary database, never your library. Install Chrome or change the Playwright project channel if needed. It checks adding/reading/highlighting/annotating, collection, independent review states, saved preferences, export/import, disconnected-AI recovery, keyboard search, and mobile navigation.
+
+Unit and integration tests cover OAuth security with genuinely signed local test tokens, terminal stream handling, grounding validation, transaction rollback, deduplication, independent scheduling, and backup corruption/referential checks. The repository contains no seeded learning records or test authentication bypass.
+
+## Architecture
+
+- `src/app/api`: Node.js backend with bounded input validation and same-origin/loopback enforcement.
+- `src/lib/auth.ts`: protected credential vault, OAuth lifecycle, account-specific catalogs, provider errors.
+- `src/lib/ai.ts`: streamed Responses client, level-aware tutoring tasks, JSON and evidence validation, persistent caching.
+- `src/lib/db.ts`: PGlite/`pg` adapter and versioned initial SQL migration.
+- `src/lib/store.ts`, `scheduler.ts`, `backup.ts`: learning persistence, independent review schedules, transactional backups.
+- `src/components`: shared task-focused UI. `DESIGN.md` and `PRODUCT.md` record product and design decisions.
+
+AI results are validated for shape, source quotations, exercise counts, option consistency, and valid saved-item references. Semantic accuracy still benefits from human judgement. Invalid or incomplete generated output is not saved as a usable lesson; useful validated output is cached to reduce repeated requests.
