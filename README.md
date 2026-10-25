@@ -113,6 +113,14 @@ The dedicated OAuth browser suite runs the production app on ports 3008 and 3009
 
 Unit and integration tests cover OAuth security with genuinely signed local test tokens, terminal stream handling, grounding validation, transaction rollback, deduplication, independent scheduling, and backup corruption/referential checks. The repository contains no seeded learning records or test authentication bypass.
 
+### AI failure diagnostics
+
+Responses failures preserve the provider’s code, original message, parameter, request ID, and response ID. Margin handles documented flat `error` events and `response.failed` response errors, plus nested error envelopes from the transport. The error panel shows actionable guidance, the code and request ID; **Provider details** reveals the original provider message when it differs from that guidance.
+
+Streaming can open with HTTP 200 and fail later. `transportStatus` retains that actual HTTP status; `providerStatus` is present only when the provider supplies an error status. The error payload’s `status` is Margin’s application error status, which may be 502 when no provider error status exists. Margin does not invent a provider HTTP 503 based on an event code.
+
+The server console emits structured `margin.ai.failure` records containing only a diagnostic ID, action, bounded error identifiers, status fields, and provider request/response IDs. It never logs provider messages, request/response bodies, article text, headers, OAuth tokens, credentials, or stack traces. A local diagnostic reference is shown when no provider request ID is available. Failed or interrupted results do not become lessons or AI cache entries. Retries remain deliberate user actions; there is no automatic inference retry or billing fallback.
+
 ## Architecture
 
 - `src/app/api`: Node.js backend with bounded input validation and same-origin/loopback enforcement.

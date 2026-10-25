@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { logAIFailure } from "@/lib/diagnostics";
 import { z } from "zod";
 import { guard, bodyJson } from "@/lib/security";
 import { runTask, aiInput } from "@/lib/ai";
@@ -6,9 +8,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const globalAI = globalThis as unknown as { marginAIRunning?: number };
 export async function POST(request: Request) {
+  const diagnosticId = randomUUID();
+  let action = "request";
   try {
     guard(request);
     const input = aiInput.parse(await bodyJson(request));
+    action = input.action;
     if ((globalAI.marginAIRunning || 0) >= 2)
       throw new AppError(
         "Two requests are already running. Let them finish first.",
@@ -35,7 +40,9 @@ export async function POST(request: Request) {
           const result = await runTask(input, signal, send);
           send({ type: "done", result });
         } catch (e) {
+          if (!signal.aborted) logAIFailure(e, action, diagnosticId);
           send({
+            diagnosticId,
             type: "error",
             ...(e instanceof z.ZodError
               ? {
@@ -67,11 +74,22 @@ export async function POST(request: Request) {
       },
     });
   } catch (e) {
+    logAIFailure(e, action, diagnosticId);
     return Response.json(
-      e instanceof z.ZodError
-        ? { error: "Some request details are invalid.", code: "validation" }
-        : errorPayload(e),
-      { status: e instanceof AppError ? e.status : 400 },
+      {
+        diagnosticId,
+        ...(e instanceof z.ZodError
+          ? { error: "Some request details are invalid.", code: "validation" }
+          : errorPayload(e)),
+      },
+      {
+        status:
+          e instanceof AppError
+            ? e.status
+            : e instanceof z.ZodError
+              ? 400
+              : 500,
+      },
     );
   }
 }

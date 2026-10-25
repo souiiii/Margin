@@ -200,7 +200,157 @@ describe("Responses stream and output quality", () => {
         new AbortController().signal,
         () => {},
       ),
-    ).rejects.toThrow("provider failed");
+    ).rejects.toMatchObject({
+      code: "subscription_sharing_usage_limit_exceeded",
+    });
+  });
+  it.each([
+    {
+      type: "error",
+      code: "invalid_type",
+      message: "The provider rejected a request field.",
+      param: "input[0].content",
+    },
+    {
+      type: "error",
+      error: {
+        code: "invalid_type",
+        message: "The provider rejected a request field.",
+        param: "input[0].content",
+      },
+    },
+    {
+      type: "response.failed",
+      response: {
+        id: "resp_failure",
+        error: {
+          code: "invalid_type",
+          message: "The provider rejected a request field.",
+          param: "input[0].content",
+        },
+      },
+    },
+  ])(
+    "preserves streaming failure cause and never caches a partial lesson ($type)",
+    async (event) => {
+      const before = await rows("SELECT key FROM ai_cache");
+      vi.mocked(openaiFetch).mockResolvedValueOnce(
+        new Response(
+          stream([
+            {
+              type: "response.output_text.delta",
+              delta: '{"meaning":"partial"}',
+            },
+            event,
+          ]),
+          { headers: { "x-request-id": "req_preserved" } },
+        ),
+      );
+      await expect(
+        generate(
+          `failure-${JSON.stringify(event)}`,
+          {},
+          z.object({ meaning: z.string() }),
+          new AbortController().signal,
+          () => {},
+        ),
+      ).rejects.toMatchObject({
+        code: "invalid_type",
+        providerMessage: "The provider rejected a request field.",
+        requestId: "req_preserved",
+        transportStatus: 200,
+        param: "input[0].content",
+      });
+      expect(await rows("SELECT key FROM ai_cache")).toHaveLength(
+        before.length,
+      );
+      expect(openaiFetch).toHaveBeenCalledTimes(1);
+    },
+  );
+  it("reads event names and the final unterminated SSE event", async () => {
+    const content =
+      'event: error\ndata: {"error":{"code":"invalid_type","message":"Specific cause"}}';
+    const values = [];
+    for await (const event of parseSSE(new Response(content).body!))
+      values.push(event);
+    expect(values).toEqual([
+      {
+        type: "error",
+        error: { code: "invalid_type", message: "Specific cause" },
+      },
+    ]);
+  });
+  it("recovers on a user retry and uses final completed output when deltas are absent", async () => {
+    vi.mocked(openaiFetch).mockResolvedValueOnce(
+      new Response(
+        stream([
+          {
+            type: "response.failed",
+            response: {
+              error: { code: "server_error", message: "Temporary failure" },
+            },
+          },
+        ]),
+      ),
+    );
+    const run = () =>
+      generate(
+        "retry-after-failure",
+        {},
+        z.object({ meaning: z.string() }),
+        new AbortController().signal,
+        () => {},
+      );
+    await expect(run()).rejects.toMatchObject({ code: "server_error" });
+    vi.mocked(openaiFetch).mockResolvedValueOnce(
+      new Response(
+        stream([
+          {
+            type: "response.completed",
+            response: {
+              id: "resp_recovered",
+              output: [
+                {
+                  type: "message",
+                  content: [
+                    { type: "output_text", text: '{"meaning":"recovered"}' },
+                  ],
+                },
+              ],
+            },
+          },
+        ]),
+      ),
+    );
+    expect(await run()).toEqual({ meaning: "recovered" });
+    expect(openaiFetch).toHaveBeenCalledTimes(2);
+  });
+  it("preserves request IDs for incomplete and interrupted streams", async () => {
+    for (const event of [
+      {
+        type: "response.incomplete",
+        response: {
+          id: "resp_incomplete",
+          incomplete_details: { reason: "max_output_tokens" },
+        },
+      },
+      { type: "response.created", response: { id: "resp_interrupted" } },
+    ]) {
+      vi.mocked(openaiFetch).mockResolvedValueOnce(
+        new Response(stream([event]), {
+          headers: { "x-request-id": "req_interruption" },
+        }),
+      );
+      await expect(
+        generate(
+          `interruption-${event.type}`,
+          {},
+          z.object({ meaning: z.string() }),
+          new AbortController().signal,
+          () => {},
+        ),
+      ).rejects.toMatchObject({ requestId: "req_interruption" });
+    }
   });
   it("rejects fabricated evidence and unknown learning references", () => {
     const exercise = {

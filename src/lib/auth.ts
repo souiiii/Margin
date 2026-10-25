@@ -16,6 +16,7 @@ import path from "node:path";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { dataDir } from "./db";
 import { normalizeLoopbackOrigin } from "./loopback";
+import { providerError } from "./provider-errors";
 import { AppError } from "./errors";
 import { modelEfforts } from "./reasoning";
 import type { AuthStatus, Model } from "./types";
@@ -541,43 +542,4 @@ export async function getModels(refresh = false): Promise<Model[]> {
   runtime.models.set(a.id, { at: Date.now(), models });
   return models;
 }
-export async function providerError(response: Response) {
-  const data = await response.json().catch(() => ({}));
-  const code =
-    typeof data.error?.code === "string"
-      ? data.error.code
-      : `http_${response.status}`;
-  const messages: Record<string, string> = {
-    subscription_sharing_usage_limit_exceeded:
-      "ChatGPT usage limit reached. Review your app allowance in ChatGPT Settings → Usage, then try again when available.",
-    subscription_sharing_usage_unavailable:
-      "ChatGPT cannot check usage right now. Try again shortly.",
-    subscription_sharing_user_not_eligible:
-      "ChatGPT plan usage is unavailable for this account or workspace.",
-    subscription_sharing_unsupported_capability:
-      "ChatGPT does not support this request capability. Choose another available model.",
-    subscription_sharing_route_not_supported:
-      "The ChatGPT plan route is unavailable. Check the integration in Settings.",
-    subscription_sharing_invalid_user:
-      "ChatGPT could not validate this account. Reconnect it in Settings.",
-    chatpass_v2_scope_not_authorized:
-      "ChatGPT plan permission was not accepted. Reconnect and enable plan usage.",
-    chatpass_v2_invalid_authorization_context:
-      "ChatGPT plan permission was not accepted. Reconnect and enable plan usage.",
-  };
-  const raw =
-    typeof data.detail === "string"
-      ? data.detail
-      : typeof data.error?.message === "string"
-        ? data.error.message
-        : undefined;
-  return new AppError(
-    messages[code] ||
-      raw ||
-      `ChatGPT request failed (${response.status}). Try again shortly.`,
-    response.status,
-    code,
-    response.headers.get("x-request-id") || undefined,
-    { status: response.status, body: data },
-  );
-}
+export { providerError } from "./provider-errors";

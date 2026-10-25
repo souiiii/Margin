@@ -4359,3 +4359,16 @@ kbd {
   font-size: 10px;
   font-weight: 400;
 }
+
+.provider-error-details {
+  margin-top: 12px;
+  font-size: 11px;
+}
+.provider-error-details summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+.provider-error-details p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

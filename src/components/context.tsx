@@ -119,11 +119,42 @@ export function MarginProvider({
                 : "That didn’t quite work"}
             </strong>
             <p>{error.message}</p>
+            {error.metadata.providerMessage &&
+              error.metadata.providerMessage !== error.message && (
+                <details className="provider-error-details">
+                  <summary>Provider details</summary>
+                  <p>{error.metadata.providerMessage}</p>
+                </details>
+              )}
+            {error.code && (
+              <small>
+                Code: {error.code}
+                {error.metadata.param
+                  ? ` · Setting: ${error.metadata.param}`
+                  : ""}
+                {error.metadata.providerStatus ||
+                (error.metadata.transportStatus &&
+                  error.metadata.transportStatus >= 400)
+                  ? ` · HTTP ${error.metadata.providerStatus || error.metadata.transportStatus}`
+                  : ""}
+              </small>
+            )}
             {error.requestId && <small>Request: {error.requestId}</small>}
+            {error.metadata.diagnosticId && !error.requestId && (
+              <small>Reference: {error.metadata.diagnosticId}</small>
+            )}
             <div className="inline-actions">
-              {["sign_in_required", "plan_permission_required"].includes(
-                error.code,
-              ) && (
+              {[
+                "sign_in_required",
+                "plan_permission_required",
+                "reasoning_unsupported",
+                "reasoning_unverified",
+                "model_unavailable",
+                "subscription_sharing_unsupported_capability",
+                "subscription_sharing_invalid_user",
+                "chatpass_v2_scope_not_authorized",
+                "chatpass_v2_invalid_authorization_context",
+              ].includes(error.code) && (
                 <button
                   onClick={() => {
                     setError(null);

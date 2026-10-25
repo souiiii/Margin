@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { z, type ZodType } from "zod";
 import { openaiFetch, providerError, getModels, authEpoch } from "./auth";
 import { rows, one, json } from "./db";
+import { normalizeProviderError } from "./provider-errors";
 import { AppError } from "./errors";
 import {
   analysisSchema,
@@ -41,6 +42,43 @@ export async function* parseSSE(
   const reader = stream.getReader(),
     decoder = new TextDecoder();
   let buffer = "";
+  function parse(block: string) {
+    const lines = block.split("\n");
+    const data = lines
+      .filter((l) => l.startsWith("data:"))
+      .map((l) => l.slice(5).replace(/^ /, ""))
+      .join("\n");
+    if (!data || data === "[DONE]") return null;
+    if (data.length > 2_000_000)
+      throw new AppError(
+        "ChatGPT’s response was too large.",
+        502,
+        "output_too_large",
+      );
+    let event: unknown;
+    try {
+      event = JSON.parse(data);
+    } catch {
+      throw new AppError(
+        "ChatGPT sent an unreadable stream. Try again.",
+        502,
+        "invalid_stream",
+      );
+    }
+    if (!event || typeof event !== "object" || Array.isArray(event))
+      throw new AppError(
+        "ChatGPT sent an invalid stream event. Try again.",
+        502,
+        "invalid_stream",
+      );
+    const result = event as Record<string, unknown>;
+    const name = lines
+      .find((l) => l.startsWith("event:"))
+      ?.slice(6)
+      .trim();
+    if (typeof result.type !== "string" && name) result.type = name;
+    return result;
+  }
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -50,24 +88,9 @@ export async function* parseSSE(
       buffer = buffer.replace(/\r\n/g, "\n");
       let end: number;
       while ((end = buffer.indexOf("\n\n")) >= 0) {
-        const block = buffer.slice(0, end);
+        const event = parse(buffer.slice(0, end));
         buffer = buffer.slice(end + 2);
-        const data = block
-          .split("\n")
-          .filter((l) => l.startsWith("data:"))
-          .map((l) => l.slice(5).trimStart())
-          .join("\n");
-        if (data && data !== "[DONE]") {
-          try {
-            yield JSON.parse(data);
-          } catch {
-            throw new AppError(
-              "ChatGPT sent an unreadable stream. Try again.",
-              502,
-              "invalid_stream",
-            );
-          }
-        }
+        if (event) yield event;
       }
       if (buffer.length > 2_000_000)
         throw new AppError(
@@ -75,12 +98,45 @@ export async function* parseSSE(
           502,
           "output_too_large",
         );
-      if (done) break;
+      if (done) {
+        if (buffer.trim()) {
+          const event = parse(buffer);
+          if (event) yield event;
+        }
+        break;
+      }
     }
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
+}
+function transportError(
+  error: unknown,
+  signal: AbortSignal,
+  requestId?: string,
+): AppError {
+  if (error instanceof AppError) {
+    if (!error.requestId) error.requestId = requestId;
+    return error;
+  }
+  if (signal.aborted)
+    return new AppError("Request cancelled.", 499, "cancelled", requestId);
+  if (error instanceof Error && error.name === "TimeoutError")
+    return new AppError(
+      "ChatGPT took too long to respond. Try again later.",
+      504,
+      "request_timeout",
+      requestId,
+    );
+  return new AppError(
+    requestId
+      ? "The connection to ChatGPT ended before it finished. Try again; no partial lesson was saved."
+      : "Margin could not connect to ChatGPT. Check your connection and try again.",
+    502,
+    requestId ? "interrupted_stream" : "connection_error",
+    requestId,
+  );
 }
 export async function generate<T>(
   task: string,
@@ -137,95 +193,140 @@ export async function generate<T>(
     type: "status",
     message: "Working with your reading and learning history",
   });
-  const response = await openaiFetch(
-    "responses",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: json({
-        model,
-        reasoning: { effort },
-        store: false,
-        stream: true,
-        instructions,
-        input: [
-          {
-            role: "user",
-            content: json({
-              task,
-              data: input,
-              output_schema: z.toJSONSchema(schema, { unrepresentable: "any" }),
-            }),
-          },
-        ],
-      }),
-    },
-    signal,
-  );
+  let response: Response;
+  try {
+    response = await openaiFetch(
+      "responses",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: json({
+          model,
+          reasoning: { effort },
+          store: false,
+          stream: true,
+          instructions,
+          input: [
+            {
+              role: "user",
+              content: json({
+                task,
+                data: input,
+                output_schema: z.toJSONSchema(schema, {
+                  unrepresentable: "any",
+                }),
+              }),
+            },
+          ],
+        }),
+      },
+      signal,
+    );
+  } catch (error) {
+    throw transportError(error, signal);
+  }
+  const requestId = response.headers.get("x-request-id") || undefined;
+  let responseId: string | undefined;
+  const streamFailure = (message: string, code: string, status = 502) => {
+    const error = new AppError(message, status, code, requestId);
+    error.transportStatus = response.status;
+    error.responseId = responseId;
+    return error;
+  };
   if (!response.ok) throw await providerError(response);
   if (!response.body)
-    throw new AppError("ChatGPT returned no stream.", 502, "empty_stream");
+    throw new AppError(
+      "ChatGPT returned no stream.",
+      502,
+      "empty_stream",
+      requestId,
+    );
   let output = "",
     completed = false,
     lastProgress = 0;
-  for await (const event of parseSSE(response.body)) {
-    if (authEpoch() !== epoch)
-      throw new AppError(
-        "The active account changed. Start this request again.",
-        409,
-        "account_changed",
-      );
-    if (event.type === "response.output_text.delta") {
-      output += String(event.delta || "");
-      if (output.length > 150000)
+  try {
+    for await (const event of parseSSE(response.body)) {
+      const eventResponse = event.response as
+        Record<string, unknown> | undefined;
+      if (typeof eventResponse?.id === "string") responseId = eventResponse.id;
+      if (authEpoch() !== epoch)
         throw new AppError(
-          "ChatGPT’s response was too large.",
-          502,
-          "output_too_large",
+          "The active account changed. Start this request again.",
+          409,
+          "account_changed",
         );
-      if (Date.now() - lastProgress > 300) {
-        onProgress({ type: "progress", characters: output.length });
-        lastProgress = Date.now();
+      if (event.type === "response.output_text.delta") {
+        output += String(event.delta || "");
+        if (output.length > 150000)
+          throw new AppError(
+            "ChatGPT’s response was too large.",
+            502,
+            "output_too_large",
+          );
+        if (Date.now() - lastProgress > 300) {
+          onProgress({ type: "progress", characters: output.length });
+          lastProgress = Date.now();
+        }
+      }
+      if (event.type === "response.failed" || event.type === "error") {
+        throw normalizeProviderError(event, {
+          transportStatus: response.status,
+          requestId,
+          responseId,
+        });
+      }
+      if (event.type === "response.incomplete") {
+        const reason = (
+          eventResponse?.incomplete_details as
+            Record<string, unknown> | undefined
+        )?.reason;
+        throw streamFailure(
+          reason === "max_output_tokens"
+            ? "ChatGPT reached its output limit before finishing. Request fewer questions or a shorter lesson."
+            : reason === "content_filter"
+              ? "ChatGPT stopped this response because of its content filter. Try a different passage or request."
+              : "ChatGPT stopped before finishing. Please try again.",
+          "incomplete_response",
+        );
+      }
+      if (event.type === "response.completed") {
+        completed = true;
+        // A completed response can carry the final text even if no deltas arrived.
+        if (!output && Array.isArray(eventResponse?.output))
+          output = eventResponse.output
+            .flatMap((item: Record<string, unknown>) =>
+              item && typeof item === "object" && Array.isArray(item.content)
+                ? item.content
+                : [],
+            )
+            .filter(
+              (part: Record<string, unknown>) =>
+                part &&
+                typeof part === "object" &&
+                part.type === "output_text" &&
+                typeof part.text === "string",
+            )
+            .map((part: Record<string, unknown>) => part.text)
+            .join("");
       }
     }
-    if (event.type === "response.failed" || event.type === "error") {
-      const r = event.response as
-        { error?: { code?: string; message?: string } } | undefined;
-      const err = r?.error || event;
-      const code = String(err.code || "stream_failed");
-      throw await providerError(
-        new Response(
-          json({
-            error: {
-              code,
-              message: err.message || "ChatGPT could not finish this request.",
-            },
-          }),
-          {
-            status: code.includes("limit") ? 429 : 503,
-            headers: {
-              "x-request-id": response.headers.get("x-request-id") || "",
-            },
-          },
-        ),
-      );
-    }
-    if (event.type === "response.incomplete")
-      throw new AppError(
-        "ChatGPT stopped before finishing. Please try again.",
-        502,
-        "incomplete_response",
-        response.headers.get("x-request-id") || undefined,
-      );
-    if (event.type === "response.completed") completed = true;
+  } catch (error) {
+    const failure = transportError(error, signal, requestId);
+    failure.transportStatus = response.status;
+    failure.responseId ??= responseId;
+    throw failure;
   }
   if (signal.aborted)
-    throw new AppError("Request cancelled.", 499, "cancelled");
+    throw streamFailure("Request cancelled.", "cancelled", 499);
   if (!completed)
-    throw new AppError(
+    throw streamFailure(
       "The connection ended before ChatGPT finished. Please try again.",
-      502,
       "interrupted_stream",
+    );
+  if (output.length > 150000)
+    throw streamFailure(
+      "ChatGPT’s response was too large.",
+      "output_too_large",
     );
   let data: T;
   try {
@@ -239,6 +340,7 @@ export async function generate<T>(
       "The generated material did not pass Margin’s quality checks. Try again; nothing incomplete was saved.",
       502,
       "invalid_ai_output",
+      requestId,
     );
   }
   validate?.(data);

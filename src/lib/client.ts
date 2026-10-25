@@ -1,10 +1,23 @@
+export interface ErrorMetadata {
+  status?: number;
+  providerCode?: string | null;
+  providerMessage?: string;
+  providerStatus?: number;
+  transportStatus?: number;
+  responseId?: string;
+  param?: string | null;
+  diagnosticId?: string;
+}
 export class ClientError extends Error {
+  metadata: ErrorMetadata;
   constructor(
     message: string,
     public code = "",
     public requestId?: string,
+    metadata: ErrorMetadata = {},
   ) {
     super(message);
+    this.metadata = metadata;
   }
 }
 export async function api<T>(
@@ -24,6 +37,7 @@ export async function api<T>(
       data.error || "The request could not be completed.",
       data.code,
       data.requestId,
+      { ...data, status: data.status ?? response.status },
     );
   return data;
 }
@@ -40,7 +54,10 @@ export async function ai<T>(
   });
   if (!response.ok) {
     const e = await response.json();
-    throw new ClientError(e.error, e.code, e.requestId);
+    throw new ClientError(e.error, e.code, e.requestId, {
+      ...e,
+      status: e.status ?? response.status,
+    });
   }
   if (!response.body) throw new ClientError("No response from Margin.");
   const reader = response.body.getReader(),
@@ -61,12 +78,31 @@ export async function ai<T>(
         if (event.type === "status") progress(event.message);
         if (event.type === "progress") progress("Composing your lesson…");
         if (event.type === "error")
-          throw new ClientError(event.error, event.code, event.requestId);
+          throw new ClientError(
+            event.error,
+            event.code,
+            event.requestId,
+            event,
+          );
         if (event.type === "done") return event.result as T;
       }
-      if (done) break;
+      if (done) {
+        if (buffer.trim()) {
+          const event = JSON.parse(buffer);
+          if (event.type === "error")
+            throw new ClientError(
+              event.error,
+              event.code,
+              event.requestId,
+              event,
+            );
+          if (event.type === "done") return event.result as T;
+        }
+        break;
+      }
     }
   } finally {
+    await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
   throw new ClientError("The connection ended early. Try again.");
