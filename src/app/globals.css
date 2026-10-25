@@ -1408,6 +1408,7 @@ kbd {
   grid-template-columns: minmax(0, 1fr);
   position: relative;
   min-height: 100%;
+  grid-template-rows: auto 1fr;
 }
 .reader-layout.with-rail {
   grid-template-columns: minmax(0, 1fr) 288px;
@@ -1445,7 +1446,7 @@ kbd {
   padding: 44px 44px 65px;
   max-width: 850px;
   width: 100%;
-  margin: auto;
+  margin: 0 auto;
   min-width: 0;
   align-self: start;
 }
@@ -1518,12 +1519,19 @@ kbd {
   border-left: 1px solid var(--line);
   min-width: 0;
   background: color-mix(in srgb, var(--sidebar) 55%, var(--canvas));
-  align-self: stretch;
+  position: sticky;
+  top: 58px;
+  align-self: start;
+  height: calc(100dvh - 120px);
+  max-height: calc(100dvh - 120px);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
   padding: 0 20px 30px;
 }
 .rail-tabs {
   position: sticky;
-  top: 58px;
+  top: 0;
   z-index: 8;
   background: color-mix(in srgb, var(--sidebar) 55%, var(--canvas));
   gap: 24px;
@@ -3245,6 +3253,7 @@ kbd {
   }
   .reader-layout.with-rail {
     grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
   }
   .reading-rail {
     border: 0;
@@ -3255,6 +3264,12 @@ kbd {
     margin: auto;
     grid-row: 3;
     grid-column: 1;
+    position: static;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    overscroll-behavior-y: auto;
+    scrollbar-gutter: auto;
   }
   .reader-layout.with-rail .reading-column {
     grid-row: 2;
@@ -4371,4 +4386,47 @@ kbd {
 .provider-error-details p {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.article-body mark.ai-suggestion {
+  background: transparent;
+  color: inherit;
+  border-bottom: 2px dotted var(--accent);
+  cursor: pointer;
+  border-radius: 2px;
+}
+.article-body mark.ai-suggestion:hover,
+.article-body mark.ai-suggestion:focus-visible {
+  background: var(--accent-soft);
+}
+.suggestion-card {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+.suggestion-card .suggestion {
+  border-bottom: 0;
+}
+.suggestion-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0;
+}
+.suggestion-feedback button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--accent);
+}
+.analysis-status,
+.analysis-error,
+.expression-details {
+  padding: 16px;
+}
+.analysis-error {
+  font-size: 13px;
+  color: var(--error);
+}
+.analysis-error button {
+  margin-top: 8px;
 }

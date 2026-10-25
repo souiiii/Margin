@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -24,21 +24,16 @@ import { useMargin } from "./context";
 import { Button, IconButton, Empty, ErrorBox, Tag, Confirm, Wave } from "./ui";
 import { ExerciseCard } from "./exercise";
 import { api, words, relativeDate } from "@/lib/client";
+import { normalizeTerm } from "@/lib/scheduler";
 import type {
   Article,
   Annotation,
   LanguageItem,
   PracticeSet,
-  ItemKind,
+  Suggestion,
+  ArticleAnalysis,
   Level,
 } from "@/lib/types";
-interface Suggestion {
-  term: string;
-  quote: string;
-  kind: ItemKind;
-  meaning: string;
-  reason: string;
-}
 export function Readings({
   articleId,
   compose,
@@ -291,7 +286,14 @@ function Reader({ article }: { article: Article }) {
   const { data, navigate, run, busy, mutate, notify } = useMargin();
   const [rail, setRail] = useState(true),
     [tab, setTab] = useState<"language" | "notes">("language"),
-    [suggestions, setSuggestions] = useState<Suggestion[] | null>(null),
+    [analysis, setAnalysis] = useState<ArticleAnalysis | null>(null),
+    [analyzing, setAnalyzing] = useState(false),
+    [analysisError, setAnalysisError] = useState(""),
+    [pollVersion, setPollVersion] = useState(0),
+    [details, setDetails] = useState<{
+      explanation: string;
+      example: string;
+    } | null>(null),
     [selection, setSelection] = useState<{
       text: string;
       start: number;
@@ -317,10 +319,110 @@ function Reader({ article }: { article: Article }) {
     [editing, setEditing] = useState(false),
     [saving, setSaving] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const railRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    railRef.current?.scrollTo({ top: 0, behavior: "instant" });
+  }, [tab, definition?.term, rail]);
+  const definitions = useRef(new Map<string, Partial<LanguageItem>>());
+  const connected = data.auth.accounts.some(
+    (a) =>
+      a.id === data.auth.active &&
+      a.connected &&
+      a.planEnabled &&
+      !a.needsReauth,
+  );
+  const collectedTerms = useMemo(
+    () => new Set(data.items.map((i) => i.normalized)),
+    [data.items],
+  );
+  const suggestions =
+    analysis?.payload?.selections.filter(
+      (s) =>
+        article.body.slice(s.start_offset, s.end_offset) === s.term &&
+        article.body.includes(s.quote),
+    ) ?? null;
+  useEffect(() => {
+    let disposed = false;
+    let failures = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    setAnalysis(null);
+    setDefinition(null);
+    setSelectedSuggestion(null);
+    setAnalysisError("");
+    const expectedHash = crypto.subtle
+      .digest("SHA-256", new TextEncoder().encode(article.body))
+      .then((digest) =>
+        Array.from(new Uint8Array(digest), (byte) =>
+          byte.toString(16).padStart(2, "0"),
+        ).join(""),
+      );
+    const poll = async (open = false) => {
+      try {
+        setAnalyzing(true);
+        let result = await api<ArticleAnalysis | null>(
+          `articles/${article.id}/analysis`,
+          open && connected ? { method: "POST", body: "{}" } : {},
+        );
+        if (
+          open &&
+          connected &&
+          ["sign_in_required", "plan_permission_required"].includes(
+            result?.error?.code || "",
+          )
+        )
+          result = await api<ArticleAnalysis>(
+            `articles/${article.id}/analysis`,
+            { method: "POST", body: JSON.stringify({ retry: true }) },
+          );
+        if (disposed) return;
+        if (result && result.content_hash !== (await expectedHash)) {
+          setAnalysis(null);
+          setAnalyzing(false);
+          setAnalysisError(
+            "This reading changed in another tab. Reload to see the current text.",
+          );
+          return;
+        }
+        failures = 0;
+        setAnalysisError("");
+        setAnalysis(result);
+        setAnalyzing(result?.status === "running");
+        if (result?.status === "running")
+          timer = setTimeout(() => void poll(), 1500);
+      } catch (e) {
+        if (!disposed) {
+          // Retry transport reads only; startAnalysis is idempotent if its response
+          // was lost. Failed inference results themselves are never replayed.
+          if (++failures <= 2) {
+            timer = setTimeout(() => void poll(open), failures * 1500);
+            return;
+          }
+          setAnalyzing(false);
+          setAnalysisError((e as Error).message);
+        }
+      }
+    };
+    void poll(true);
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+    };
+  }, [article.id, article.body, connected, pollVersion]);
   const selections = data.annotations.filter(
     (a) => a.article_id === article.id,
   );
   const sets = data.sets.filter((s) => s.source_article_id === article.id);
+  const isCollected = (s: Suggestion) =>
+    collectedTerms.has(normalizeTerm(s.term)) ||
+    collectedTerms.has(normalizeTerm(s.lemma));
+  const definitionCollected = selectedSuggestion
+    ? isCollected(selectedSuggestion)
+    : selections.some(
+        (a) =>
+          a.item_id &&
+          a.start_offset === definitionSource?.start &&
+          a.quote === definitionSource?.quote,
+      );
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     let progress = article.progress;
@@ -409,39 +511,82 @@ function Reader({ article }: { article: Article }) {
     setTab("language");
     const term = selection.text;
     const source = { quote: selection.text, start: selection.start };
-    const result = await run<Partial<LanguageItem>>({
-      action: "define",
-      term,
-      articleId: article.id,
-      context: selection.text,
-    });
+    setDetails(null);
+    const key = `${selection.start}:${selection.end}`;
+    const result =
+      definitions.current.get(key) ||
+      (await run<Partial<LanguageItem>>({
+        action: "define",
+        term,
+        articleId: article.id,
+        context: selection.text,
+        startOffset: selection.start,
+      }));
+    if (result) definitions.current.set(key, result);
     if (result) {
       setDefinition({ ...result, term });
       setDefinitionSource(source);
     }
   }
-  async function defineSuggestion(s: Suggestion) {
+  function defineSuggestion(s: Suggestion) {
     setRail(true);
     setTab("language");
     setSelection(null);
-    setDefinition(null);
     setSelectedSuggestion(s);
-    const result = await run<Partial<LanguageItem>>({
-      action: "define",
+    setDetails(null);
+    setDefinition({
       term: s.term,
-      articleId: article.id,
-      context: s.quote,
+      kind: s.kind,
+      meaning: s.meaning,
+      examples: [{ sentence: s.example, note: "" }],
     });
-    if (result) {
-      setDefinition({ ...result, term: s.term });
-      setDefinitionSource({
-        quote: s.quote,
-        start: article.body.indexOf(s.quote),
-      });
+    setDefinitionSource({ quote: s.term, start: s.start_offset });
+  }
+  async function feedback(s: Suggestion, value: "known" | "unhelpful") {
+    if (!analysis) return;
+    setSaving(true);
+    try {
+      const result = await api<ArticleAnalysis>(
+        `articles/${article.id}/feedback`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            start: s.start_offset,
+            hash: analysis.content_hash,
+            feedback: value,
+          }),
+        },
+      );
+      setAnalysis(result);
+      setDefinition(null);
+      setSelectedSuggestion(null);
+      notify(value === "known" ? "Marked as known" : "Feedback saved");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function quickCollect(s: Suggestion) {
+    if (!analysis) return;
+    setSaving(true);
+    try {
+      const result = await mutate<{ analysis: ArticleAnalysis }>(
+        `articles/${article.id}/collect`,
+        "POST",
+        { start: s.start_offset, hash: analysis.content_hash },
+      );
+      setAnalysis(result.analysis);
+      notify("Collected — it’ll return in review");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
     }
   }
   async function collect() {
     if (!definition) return;
+    if (selectedSuggestion) return quickCollect(selectedSuggestion);
     setSaving(true);
     try {
       const context = definitionSource?.quote || "";
@@ -457,7 +602,8 @@ function Reader({ article }: { article: Article }) {
         !selections.some(
           (s) =>
             s.start_offset === offset &&
-            s.end_offset === offset + context.length,
+            s.end_offset === offset + context.length &&
+            s.item_id,
         )
       )
         await mutate("annotations", "POST", {
@@ -472,9 +618,7 @@ function Reader({ article }: { article: Article }) {
           ? "Already in your language bank"
           : "Collected — it’ll return in review",
       );
-      setDefinition(null);
       setSelection(null);
-      setSelectedSuggestion(null);
       window.getSelection()?.removeAllRanges();
     } catch (e) {
       setError((e as Error).message);
@@ -483,14 +627,20 @@ function Reader({ article }: { article: Article }) {
     }
   }
   async function analyze() {
-    const result = await run<{ selections: Suggestion[] }>({
-      action: "analyze",
-      articleId: article.id,
-    });
-    if (result) {
-      setSuggestions(result.selections);
-      setRail(true);
-      setTab("language");
+    setRail(true);
+    setTab("language");
+    setAnalysisError("");
+    if (analysis?.status === "complete") return;
+    try {
+      const result = await api<ArticleAnalysis>(
+        `articles/${article.id}/analysis`,
+        { method: "POST", body: JSON.stringify({ retry: true }) },
+      );
+      setAnalysis(result);
+      setAnalyzing(result.status === "running");
+      setPollVersion((v) => v + 1);
+    } catch (e) {
+      setAnalysisError((e as Error).message);
     }
   }
   async function questions() {
@@ -519,6 +669,7 @@ function Reader({ article }: { article: Article }) {
       0,
       article.body.length,
       ...selections.flatMap((s) => [s.start_offset, s.end_offset]),
+      ...(suggestions || []).flatMap((s) => [s.start_offset, s.end_offset]),
     ]),
   ].sort((a, b) => a - b);
   return (
@@ -544,9 +695,15 @@ function Reader({ article }: { article: Article }) {
             <Type size={20} />
           </IconButton>
           <span className="toolbar-divider" />
-          <Button variant="ghost" disabled={busy} onClick={analyze}>
+          <Button variant="ghost" disabled={analyzing} onClick={analyze}>
             <Sparkles size={16} />
-            <span>Notice language</span>
+            <span>
+              {analyzing
+                ? "Noticing language…"
+                : analysis?.status === "complete"
+                  ? "Language suggestions"
+                  : "Notice language"}
+            </span>
           </Button>
           <IconButton
             label={rail ? "Close reading notes" : "Open reading notes"}
@@ -604,7 +761,32 @@ function Reader({ article }: { article: Article }) {
                 {text}
               </mark>
             ) : (
-              <span key={start}>{text}</span>
+              (() => {
+                const s = suggestions?.find(
+                  (s) => s.start_offset <= start && s.end_offset >= end,
+                );
+                return s ? (
+                  <mark
+                    key={start}
+                    className="ai-suggestion"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Explore ${s.term}`}
+                    title={`AI suggestion: ${s.meaning}`}
+                    onClick={() => defineSuggestion(s)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        defineSuggestion(s);
+                      }
+                    }}
+                  >
+                    {text}
+                  </mark>
+                ) : (
+                  <span key={start}>{text}</span>
+                );
+              })()
             );
           })}
         </div>
@@ -706,7 +888,11 @@ function Reader({ article }: { article: Article }) {
         </section>
       </div>
       {rail && (
-        <aside className="reading-rail">
+        <aside
+          ref={railRef}
+          className="reading-rail"
+          aria-label="Reading notes"
+        >
           <div className="rail-tabs tabs">
             <button
               className={tab === "language" ? "active" : ""}
@@ -726,6 +912,56 @@ function Reader({ article }: { article: Article }) {
           </div>
           {tab === "language" ? (
             <>
+              {analyzing && (
+                <p className="rail-hint analysis-status" role="status">
+                  Noticing useful language… You can keep reading.
+                </p>
+              )}
+              {(analysisError || analysis?.error) && (
+                <div className="analysis-error" role="alert">
+                  <p>{analysisError || analysis?.error?.error}</p>
+                  {analysis?.error && (
+                    <small>
+                      {analysis.error.code}
+                      {analysis.error.requestId
+                        ? ` · Request: ${analysis.error.requestId}`
+                        : analysis.error.diagnosticId
+                          ? ` · Reference: ${analysis.error.diagnosticId}`
+                          : ""}
+                    </small>
+                  )}
+                  {analysis?.error?.code.includes("limit") && (
+                    <a
+                      href="https://chatgpt.com/settings/usage"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      ChatGPT usage ↗
+                    </a>
+                  )}
+                  <Button
+                    variant="secondary"
+                    disabled={analyzing}
+                    onClick={async () => {
+                      if (analysis?.error?.code.includes("limit"))
+                        await api("ai-resume", { method: "POST" });
+                      await analyze();
+                    }}
+                  >
+                    Retry analysis
+                  </Button>
+                  {(!connected ||
+                    [
+                      "reasoning_unverified",
+                      "reasoning_unsupported",
+                      "model_unavailable",
+                    ].includes(analysis?.error?.code || "")) && (
+                    <button onClick={() => navigate("settings")}>
+                      Open Settings
+                    </button>
+                  )}
+                </div>
+              )}
               {definition ? (
                 <div className="definition-preview">
                   <button
@@ -763,10 +999,69 @@ function Reader({ article }: { article: Article }) {
                       </div>
                     </>
                   )}
-                  <Button busy={saving} onClick={collect}>
-                    <Bookmark size={16} />
-                    Collect expression
+                  {selectedSuggestion && (
+                    <p className="rail-hint">
+                      AI suggestion · {selectedSuggestion.reason}
+                    </p>
+                  )}
+                  <Button
+                    busy={saving}
+                    disabled={definitionCollected}
+                    onClick={collect}
+                  >
+                    {definitionCollected ? (
+                      <Check size={16} />
+                    ) : (
+                      <Bookmark size={16} />
+                    )}
+                    {definitionCollected ? "Collected" : "Collect expression"}
                   </Button>
+                  {selectedSuggestion && (
+                    <div className="suggestion-feedback">
+                      <button
+                        disabled={saving}
+                        onClick={() => feedback(selectedSuggestion, "known")}
+                      >
+                        Already known
+                      </button>
+                      <button
+                        disabled={saving}
+                        onClick={() =>
+                          feedback(selectedSuggestion, "unhelpful")
+                        }
+                      >
+                        Unhelpful
+                      </button>
+                    </div>
+                  )}
+                  {details ? (
+                    <div className="expression-details">
+                      <p>{details.explanation}</p>
+                      <blockquote>{details.example}</blockquote>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={async () => {
+                        const result = await run<{
+                          explanation: string;
+                          example: string;
+                        }>({
+                          action: "deeper",
+                          term: definition.term,
+                          meaning: definition.meaning,
+                          context:
+                            selectedSuggestion?.quote ||
+                            definitionSource?.quote ||
+                            "",
+                        });
+                        if (result) setDetails(result);
+                      }}
+                    >
+                      Explain more
+                    </Button>
+                  )}
                 </div>
               ) : suggestions ? (
                 <div className="suggestions-list">
@@ -778,26 +1073,54 @@ function Reader({ article }: { article: Article }) {
                     </p>
                   ) : (
                     <>
-                      <p className="rail-hint">A few things worth noticing.</p>
+                      <p className="rail-hint">
+                        AI suggestions · Collect what you want to learn.
+                      </p>
                       {suggestions.map((s) => (
-                        <button
-                          key={s.quote}
-                          className="suggestion"
-                          onClick={() => defineSuggestion(s)}
-                          disabled={busy}
-                        >
-                          <span className="suggestion-head">
-                            <strong>{s.term}</strong>
-                            <Plus size={15} />
-                          </span>
-                          <span>{s.meaning}</span>
-                          <small>{s.reason}</small>
-                        </button>
+                        <div key={s.start_offset} className="suggestion-card">
+                          <button
+                            className="suggestion"
+                            onClick={() => defineSuggestion(s)}
+                          >
+                            <span className="suggestion-head">
+                              <strong>{s.term}</strong>
+                              <ArrowRight size={15} />
+                            </span>
+                            <span>{s.meaning}</span>
+                            <small>{s.reason}</small>
+                          </button>
+                          <div className="suggestion-feedback">
+                            <button
+                              disabled={saving || isCollected(s)}
+                              onClick={() => quickCollect(s)}
+                              aria-label={`${isCollected(s) ? "Collected" : "Collect"} ${s.term}`}
+                            >
+                              {isCollected(s) ? (
+                                <Check size={13} />
+                              ) : (
+                                <Bookmark size={13} />
+                              )}
+                              {isCollected(s) ? "Collected" : "Collect"}
+                            </button>
+                            <button
+                              disabled={saving}
+                              onClick={() => feedback(s, "known")}
+                            >
+                              Already known
+                            </button>
+                            <button
+                              disabled={saving}
+                              onClick={() => feedback(s, "unhelpful")}
+                            >
+                              Unhelpful
+                            </button>
+                          </div>
+                        </div>
                       ))}
                     </>
                   )}
                 </div>
-              ) : (
+              ) : !analyzing && !analysis?.error && !analysisError ? (
                 <div className="rail-empty">
                   <Highlighter size={26} />
                   <h3>Follow your curiosity.</h3>
@@ -810,7 +1133,7 @@ function Reader({ article }: { article: Article }) {
                     Notice language
                   </Button>
                 </div>
-              )}
+              ) : null}
             </>
           ) : (
             <div className="notes-list">

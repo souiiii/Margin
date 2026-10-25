@@ -18,6 +18,7 @@ import { generate, parseSSE, validateExercises } from "@/lib/ai";
 import { rows } from "@/lib/db";
 import { saveSettings, defaultSettings } from "@/lib/store";
 import { exercisesSchema } from "@/lib/schemas";
+import { resumePlan } from "@/lib/ai-runtime";
 function stream(events: unknown[], chunkSize = 7) {
   const encoded = new TextEncoder().encode(
     events.map((e) => `data: ${JSON.stringify(e)}\r\n\r\n`).join(""),
@@ -30,8 +31,130 @@ function stream(events: unknown[], chunkSize = 7) {
     },
   });
 }
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  resumePlan();
+});
 describe("Responses stream and output quality", () => {
+  it("queues new work at two inferences, while cancelled queued work never reaches the provider", async () => {
+    let active = 0,
+      peak = 0;
+    vi.mocked(openaiFetch).mockImplementation(async () => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      active--;
+      return new Response(
+        stream([
+          {
+            type: "response.output_text.delta",
+            delta: '{"meaning":"Queued safely"}',
+          },
+          { type: "response.completed" },
+        ]),
+      );
+    });
+    const progress: Record<string, unknown>[] = [];
+    const run = (name: string, signal = new AbortController().signal) =>
+      generate(name, {}, z.object({ meaning: z.string() }), signal, (event) =>
+        progress.push(event),
+      );
+    const first = run("queue-first"),
+      second = run("queue-second"),
+      third = run("queue-third");
+    const cancelled = new AbortController();
+    const fourth = run("queue-cancelled", cancelled.signal);
+    const failure = expect(fourth).rejects.toThrow();
+    setTimeout(() => cancelled.abort(), 20);
+    await Promise.all([first, second, third, failure]);
+    expect(peak).toBe(2);
+    expect(openaiFetch).toHaveBeenCalledTimes(3);
+    expect(
+      progress.some((event) => String(event.message).includes("Waiting")),
+    ).toBe(true);
+  });
+  it("coalesces concurrent generation, measures latency, and serves subsequent calls from disk cache", async () => {
+    vi.mocked(openaiFetch).mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      return new Response(
+        stream([
+          {
+            type: "response.output_text.delta",
+            delta: '{"meaning":"One shared response"}',
+          },
+          { type: "response.completed" },
+        ]),
+      );
+    });
+    const metrics: Record<string, unknown>[] = [];
+    const run = () =>
+      generate(
+        "measured-shared-work",
+        {},
+        z.object({ meaning: z.string() }),
+        new AbortController().signal,
+        (event) => {
+          if (event.type === "metrics") metrics.push(event);
+        },
+      );
+    const firstStart = performance.now();
+    await Promise.all([run(), run(), run()]);
+    const firstMs = performance.now() - firstStart;
+    const cachedStart = performance.now();
+    await run();
+    const cachedMs = performance.now() - cachedStart;
+    expect(openaiFetch).toHaveBeenCalledTimes(1);
+    expect(metrics[0]).toMatchObject({
+      cacheHit: false,
+      durationMs: expect.any(Number),
+      firstTokenMs: expect.any(Number),
+    });
+    expect(metrics.at(-1)).toMatchObject({ cacheHit: true, inputBytes: 0 });
+    expect(cachedMs).toBeLessThan(firstMs / 2);
+    console.info("Margin deterministic provider benchmark", {
+      concurrentConsumers: 3,
+      inferenceRequests: 1,
+      firstMs: Math.round(firstMs),
+      cachedMs: Math.round(cachedMs),
+    });
+  });
+  it("lets one consumer cancel shared inference without cancelling another reader", async () => {
+    vi.mocked(openaiFetch).mockImplementation(
+      async (_url, _options, signal) => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        expect(signal?.aborted).toBe(false);
+        return new Response(
+          stream([
+            {
+              type: "response.output_text.delta",
+              delta: '{"meaning":"Still reading"}',
+            },
+            { type: "response.completed" },
+          ]),
+        );
+      },
+    );
+    const first = new AbortController();
+    const pending = generate(
+      "independent-consumer-cancellation",
+      {},
+      z.object({ meaning: z.string() }),
+      first.signal,
+      () => {},
+    );
+    const other = generate(
+      "independent-consumer-cancellation",
+      {},
+      z.object({ meaning: z.string() }),
+      new AbortController().signal,
+      () => {},
+    );
+    const rejected = expect(pending).rejects.toThrow();
+    setTimeout(() => first.abort(), 10);
+    await rejected;
+    expect(await other).toEqual({ meaning: "Still reading" });
+    expect(openaiFetch).toHaveBeenCalledTimes(1);
+  });
   it("handles SSE and UTF-8 split across arbitrary network chunks", async () => {
     const events = [];
     for await (const event of parseSSE(

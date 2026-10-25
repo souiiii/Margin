@@ -26,6 +26,32 @@ export interface Annotation {
   item_id: string | null;
   created_at: string;
 }
+export interface Suggestion {
+  term: string;
+  lemma: string;
+  quote: string;
+  kind: ItemKind;
+  meaning: string;
+  reason: string;
+  example: string;
+  start_offset: number;
+  end_offset: number;
+}
+export interface ArticleAnalysis {
+  article_id: string;
+  content_hash: string;
+  status: "running" | "complete" | "failed";
+  payload: { overview: string; selections: Suggestion[] } | null;
+  error: {
+    error: string;
+    code: string;
+    requestId?: string;
+    diagnosticId?: string;
+    providerMessage?: string;
+  } | null;
+  metrics: Record<string, number | boolean>;
+  updated_at: string;
+}
 export interface Example {
   sentence: string;
   note: string;

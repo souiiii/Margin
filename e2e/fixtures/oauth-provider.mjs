@@ -3,6 +3,7 @@
 import { generateKeyPairSync, createHash, sign } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { appendFileSync } from "node:fs";
 if (
   !process.env.MARGIN_DATA_DIR?.startsWith(path.join(tmpdir(), "margin-oauth-"))
 )
@@ -19,6 +20,7 @@ const key = {
 const originalFetch = globalThis.fetch;
 const encode = (value) =>
   Buffer.from(JSON.stringify(value)).toString("base64url");
+const failures = new Set();
 globalThis.fetch = async (input, init) => {
   const url = new URL(
     typeof input === "string"
@@ -69,9 +71,111 @@ globalThis.fetch = async (input, init) => {
   if (url.href === "https://api.openai.com/v1/models")
     return Response.json({
       models: [
-        { slug: "test-model", display_name: "Test model", visibility: "list" },
+        {
+          slug: "test-model",
+          display_name: "Test model",
+          visibility: "list",
+          supported_reasoning_levels: ["low", "medium"],
+        },
       ],
     });
+  if (url.href === "https://api.openai.com/v1/responses") {
+    const request = JSON.parse(init.body);
+    const { data } = JSON.parse(request.input[0].content);
+    const source = data.source || "";
+    const sourceHash = createHash("sha256").update(source).digest("hex");
+    if (
+      process.env.MARGIN_E2E_AI_AUDIT?.startsWith(
+        path.join(tmpdir(), "margin-ai-"),
+      )
+    )
+      appendFileSync(
+        process.env.MARGIN_E2E_AI_AUDIT,
+        JSON.stringify({ sourceHash, at: Date.now() }) + "\n",
+      );
+    const failed =
+      source.includes("ANALYSIS_FAIL_ONCE") && !failures.has(sourceHash);
+    failures.add(sourceHash);
+    const selections = [
+      [
+        "turned a corner",
+        "turn a corner",
+        "Began to improve after difficulty.",
+        "The team turned a corner after its first win.",
+      ],
+      [
+        "took it in their stride",
+        "take it in your stride",
+        "Handled the difficulty calmly.",
+        "She took the delay in her stride.",
+      ],
+      [
+        "paid off",
+        "pay off",
+        "Produced a good result.",
+        "The extra practice paid off.",
+      ],
+    ]
+      .filter(([term]) => source.includes(term))
+      .map(([term, lemma, meaning, example]) => {
+        const start = source.indexOf(term);
+        return {
+          term,
+          lemma,
+          meaning,
+          example,
+          kind: "idiom",
+          reason: "Useful for describing everyday progress.",
+          quote: source.slice(
+            Math.max(0, start - 25),
+            Math.min(source.length, start + term.length + 25),
+          ),
+        };
+      });
+    // Artificial provider latency makes non-blocking rendering observable.
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          setTimeout(() => {
+            const event = failed
+              ? {
+                  type: "response.failed",
+                  response: {
+                    error: {
+                      code: "server_error",
+                      message: "Temporary fixture failure",
+                    },
+                  },
+                }
+              : {
+                  type: "response.completed",
+                  response: {
+                    output: [
+                      {
+                        content: [
+                          {
+                            type: "output_text",
+                            text: JSON.stringify({
+                              overview:
+                                "A project improves through persistent effort.",
+                              selections,
+                            }),
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                };
+            controller.enqueue(
+              new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`),
+            );
+            controller.close();
+          }, 1200);
+        },
+      }),
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+  }
   if (["auth.openai.com", "api.openai.com"].includes(url.hostname))
     throw new Error(
       `Unexpected provider call in OAuth browser test: ${url.pathname}`,

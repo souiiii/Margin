@@ -6,7 +6,6 @@ import { runTask, aiInput } from "@/lib/ai";
 import { AppError, errorPayload } from "@/lib/errors";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const globalAI = globalThis as unknown as { marginAIRunning?: number };
 export async function POST(request: Request) {
   const diagnosticId = randomUUID();
   let action = "request";
@@ -14,13 +13,6 @@ export async function POST(request: Request) {
     guard(request);
     const input = aiInput.parse(await bodyJson(request));
     action = input.action;
-    if ((globalAI.marginAIRunning || 0) >= 2)
-      throw new AppError(
-        "Two requests are already running. Let them finish first.",
-        429,
-        "busy",
-      );
-    globalAI.marginAIRunning = (globalAI.marginAIRunning || 0) + 1;
     const encoder = new TextEncoder();
     const abort = new AbortController();
     const signal = AbortSignal.any([request.signal, abort.signal]);
@@ -53,10 +45,6 @@ export async function POST(request: Request) {
           });
         } finally {
           clearInterval(heartbeat);
-          globalAI.marginAIRunning = Math.max(
-            0,
-            (globalAI.marginAIRunning || 1) - 1,
-          );
           try {
             controller.close();
           } catch {}

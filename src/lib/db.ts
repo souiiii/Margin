@@ -25,10 +25,13 @@ CREATE TABLE IF NOT EXISTS attempts (id uuid PRIMARY KEY, set_id uuid NOT NULL R
 CREATE TABLE IF NOT EXISTS ai_cache (key text PRIMARY KEY, model text NOT NULL, payload jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS app_settings (key text PRIMARY KEY, value jsonb NOT NULL);
 CREATE TABLE IF NOT EXISTS curriculum_units (id uuid PRIMARY KEY, position integer NOT NULL UNIQUE, title text NOT NULL, specification jsonb NOT NULL, published boolean NOT NULL DEFAULT false);
+CREATE TABLE IF NOT EXISTS article_analyses (article_id uuid PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE, content_hash text NOT NULL, status text NOT NULL CHECK(status IN ('running','complete','failed')), payload jsonb, error jsonb, metrics jsonb NOT NULL DEFAULT '{}', updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS language_feedback (normalized text PRIMARY KEY, term text NOT NULL, feedback text NOT NULL CHECK(feedback IN ('known','unhelpful')), created_at timestamptz NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS annotations_article_idx ON annotations(article_id);
 CREATE INDEX IF NOT EXISTS review_due_idx ON review_states(due_at);
 CREATE INDEX IF NOT EXISTS attempts_skill_idx ON attempts(skill,created_at);
 INSERT INTO schema_migrations(version) VALUES (1) ON CONFLICT DO NOTHING;
+INSERT INTO schema_migrations(version) VALUES (2) ON CONFLICT DO NOTHING;
 `;
 function wrapPg(client: Pool | PoolClient): Database {
   return {

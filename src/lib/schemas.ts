@@ -37,33 +37,45 @@ export const itemInput = z.object({
 export const definitionSchema = z.object({
   term: z.string().min(1).max(180),
   kind: kindSchema,
-  meaning: z.string().min(1).max(4000),
+  meaning: z.string().min(1).max(240),
   examples: z
     .array(
       z.object({
-        sentence: z.string().min(1).max(1000),
-        note: z.string().max(500),
+        sentence: z.string().min(1).max(260),
+        note: z.string().max(120),
       }),
     )
-    .min(2)
-    .max(4),
-  collocations: z.array(short).max(8),
-  related: z.array(short).max(6),
-  register: z.string().min(1).max(500),
+    .length(1),
+  collocations: z.array(short).max(3),
+  related: z.array(short).max(2),
+  register: z.string().min(1).max(80),
+});
+export const detailSchema = z.object({
+  explanation: z.string().min(1).max(700),
+  example: z.string().min(1).max(260),
 });
 export const analysisSchema = z.object({
+  overview: z.string().min(1).max(240),
   selections: z
     .array(
       z.object({
         term: z.string().min(1).max(180),
+        lemma: z.string().min(1).max(180),
         quote: z.string().min(1).max(600),
         kind: kindSchema,
-        meaning: z.string().min(1).max(1000),
-        reason: z.string().min(1).max(500),
+        meaning: z.string().min(1).max(200),
+        reason: z.string().min(1).max(140),
+        example: z.string().min(1).max(260),
       }),
     )
-    .max(10),
+    .max(8),
 });
+export const savedSuggestionSchema =
+  analysisSchema.shape.selections.element.extend({
+    start_offset: z.number().int().min(0),
+    end_offset: z.number().int().min(1),
+  });
+// Storage/backup schemas retain older explanations; generation uses brief schemas below.
 export const exerciseSchema = z
   .object({
     id: z.string().min(1).max(100),
@@ -114,6 +126,18 @@ export const evaluationSchema = z.object({
   misconception: z.string().max(1000),
   evidence: z.string().max(2000),
 });
+export const briefExercisesSchema = exercisesSchema.safeExtend({
+  exercises: z
+    .array(
+      exerciseSchema.safeExtend({ explanation: z.string().min(1).max(480) }),
+    )
+    .min(1)
+    .max(8),
+});
+export const briefEvaluationSchema = evaluationSchema.extend({
+  feedback: z.string().min(1).max(480),
+  misconception: z.string().max(180),
+});
 export const dailySchema = z.object({
   discoveries: z
     .array(
@@ -129,6 +153,18 @@ export const dailySchema = z.object({
     .min(1)
     .max(3),
   prompt: z.string().min(1).max(1000),
+});
+export const briefDailySchema = dailySchema.extend({
+  discoveries: z
+    .array(
+      dailySchema.shape.discoveries.element.extend({
+        note: z.string().min(1).max(220),
+        meaning: z.string().min(1).max(200),
+        example: z.string().min(1).max(260),
+      }),
+    )
+    .min(1)
+    .max(3),
 });
 export const settingsSchema = z.object({
   everyday_reasoning: z.enum(reasoningEfforts).default("low"),

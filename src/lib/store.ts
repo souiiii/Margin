@@ -110,11 +110,11 @@ export async function requireItem(id: string): Promise<LanguageItem> {
     );
   return i;
 }
-export async function addItem(input: unknown) {
+export async function addItem(input: unknown, tx?: Database) {
   const data = itemInput.parse(input);
   const normalized = normalizeTerm(data.term);
   if (!normalized) throw new AppError("Enter an expression.");
-  return (await getDb()).transaction(async (db) => {
+  const save = async (db: Database) => {
     const existing = await one<LanguageItem>(
       "SELECT * FROM items WHERE normalized=$1",
       [normalized],
@@ -161,7 +161,8 @@ export async function addItem(input: unknown) {
         db,
       );
     return { item, duplicate: item.id !== id };
-  });
+  };
+  return tx ? save(tx) : (await getDb()).transaction(save);
 }
 export async function recordReview(
   itemId: string,
@@ -199,12 +200,14 @@ export async function recordReview(
       db,
     );
     const id = randomUUID();
-    await rows(
-      "INSERT INTO reviews(id,item_id,mode,rating,answer,feedback) VALUES($1,$2,$3,$4,$5,$6)",
-      [id, itemId, mode, rating, answer, feedback ? json(feedback) : null],
-      db,
-    );
-    return { id, state: next, feedback };
+    const review = (
+      await rows(
+        "INSERT INTO reviews(id,item_id,mode,rating,answer,feedback) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
+        [id, itemId, mode, rating, answer, feedback ? json(feedback) : null],
+        db,
+      )
+    )[0];
+    return { id, state: next, feedback, review };
   });
 }
 export async function createSet(

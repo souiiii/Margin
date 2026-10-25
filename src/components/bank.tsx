@@ -282,7 +282,11 @@ function ItemDetail({ item }: { item: LanguageItem }) {
     [editing, setEditing] = useState(false),
     [error, setError] = useState(""),
     [saving, setSaving] = useState(false),
-    [confirm, setConfirm] = useState(false);
+    [confirm, setConfirm] = useState(false),
+    [details, setDetails] = useState<{
+      explanation: string;
+      example: string;
+    } | null>(null);
   const source = data.articles.find((a) => a.id === item.source_article_id);
   const recognition = data.reviewStates.find(
       (s) => s.item_id === item.id && s.mode === "recognition",
@@ -486,6 +490,32 @@ function ItemDetail({ item }: { item: LanguageItem }) {
         <Sparkles size={15} />
         {item.meaning ? "Refresh with Margin" : "Explore with Margin"}
       </Button>
+      {item.meaning &&
+        (details ? (
+          <div className="expression-details">
+            <p>{details.explanation}</p>
+            <blockquote>{details.example}</blockquote>
+          </div>
+        ) : (
+          <Button
+            variant="ghost"
+            disabled={busy}
+            onClick={async () => {
+              const result = await run<{
+                explanation: string;
+                example: string;
+              }>({
+                action: "deeper",
+                term: item.term,
+                meaning: item.meaning,
+                context: item.context,
+              });
+              if (result) setDetails(result);
+            }}
+          >
+            Explain more
+          </Button>
+        ))}
       {confirm && (
         <Confirm
           title="Remove this expression?"

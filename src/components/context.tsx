@@ -10,6 +10,7 @@ import {
 } from "react";
 import { ai, api, ClientError, localDate } from "@/lib/client";
 import type { AppState } from "@/lib/types";
+import { applyAIResult, applyMutation } from "@/lib/client-state";
 interface Context {
   data: AppState;
   refresh: () => Promise<void>;
@@ -62,7 +63,9 @@ export function MarginProvider({
     setMessage("Preparing your lesson…");
     try {
       const result = await ai<T>(input, controller.signal, setMessage);
-      await refresh();
+      setData((state) =>
+        applyAIResult(state, input as { action: string }, result),
+      );
       return result;
     } catch (e) {
       if (!(e instanceof Error && e.name === "AbortError"))
@@ -88,7 +91,9 @@ export function MarginProvider({
       method,
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
-    await refresh();
+    if (["accounts", "backup"].includes(path.split("/")[0])) await refresh();
+    else
+      setData((state) => applyMutation(state, path, method, result) || state);
     return result;
   };
   return (
@@ -165,13 +170,24 @@ export function MarginProvider({
                 </button>
               )}
               {error.code.includes("limit") && (
-                <a
-                  href="https://chatgpt.com/settings/usage"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  ChatGPT usage ↗
-                </a>
+                <>
+                  <a
+                    href="https://chatgpt.com/settings/usage"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    ChatGPT usage ↗
+                  </a>
+                  <button
+                    onClick={async () => {
+                      await api("ai-resume", { method: "POST" });
+                      setError(null);
+                      notify("Requests resumed. Retry when you’re ready.");
+                    }}
+                  >
+                    Resume requests
+                  </button>
+                </>
               )}
             </div>
           </div>

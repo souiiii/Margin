@@ -51,7 +51,7 @@ Settings → Your tutor provides independent **Everyday reasoning** (Light / API
 ## A connected learning workflow
 
 1. **Readings:** paste an article or passage; optional author and source URL. No reading material is preloaded. Articles remain plain text, which preserves exact source positions and avoids running pasted HTML.
-2. **Notice language:** ask Margin for a selective, level-appropriate set of expressions. Or select text yourself and choose **Explore** or **Highlight**. Collected expressions retain source context; highlights support editable notes.
+2. **Notice language:** saving or opening an unanalyzed article starts analysis in the background. Selective, personalised suggestions appear as dotted teal underlines; your saved highlights remain peach. Open a suggestion for its contextual meaning and one example, or collect it immediately. Mark suggestions **Already known** or **Unhelpful** to guide future selection. You can also select text yourself and choose **Explore** or **Highlight**. Collected expressions retain source context; highlights support editable notes.
 3. **Between the lines:** generate questions beneath the original reading. Choose difficulty, type, and count; generate more without repeating existing questions. Questions and evaluations must contain exact source evidence before saving.
 4. **Language bank:** search meanings, terms, notes, or collocations; add manually or with AI. Explore usage, register, collocations, related expressions, and source context. Browser speech synthesis can pronounce expressions.
 5. **Practice:** generate grammar, vocabulary, comprehension, sentence, writing, and word-choice tasks. Saved language, recent mistakes, previous questions, and skill performance inform new sets. Open tasks are evaluated with explanations and improved answers; unfinished sessions resume.
@@ -109,7 +109,7 @@ npm run test:oauth
 
 The browser test launches an isolated production server on port 3007 and uses installed Google Chrome. Test content lives in a temporary database, never your library. Install Chrome or change the Playwright project channel if needed. It checks adding/reading/highlighting/annotating, collection, independent review states, saved preferences, export/import, disconnected-AI recovery, keyboard search, and mobile navigation.
 
-The dedicated OAuth browser suite runs the production app on ports 3008 and 3009 with isolated temporary libraries. It executes the real proxy, start/callback routes, code exchange, JWT verification, cookies, persistence, and post-login UI, replacing only the external provider boundary with signed test credentials. Its provider verifies the exact redirect URI and PKCE challenge. It covers success, denial, token exchange failures, bad nonce/state, missing cookies, callback replay, localhost aliases, start failures, and a legacy localhost origin configuration. The server-side provider fixture is loaded only through the test process’s `NODE_OPTIONS`; no production auth bypass or configurable provider endpoint exists. These deterministic tests do not substitute for authorizing your real ChatGPT account.
+The dedicated OAuth browser suite runs the production app on ports 3008 and 3009 with isolated temporary libraries. It executes the real proxy, start/callback routes, code exchange, JWT verification, cookies, persistence, and post-login UI, replacing only the external provider boundary with signed test credentials. Its provider verifies the exact redirect URI and PKCE challenge. It covers success, denial, token exchange failures, bad nonce/state, missing cookies, callback replay, localhost aliases, start failures, and a legacy localhost origin configuration. It also exercises automatic analysis on creation/opening, exact article marks, immediate exploration, collection, feedback, reopening, failed inference, deliberate retry and content edits against a simulated Responses stream. The server-side provider fixture is loaded only through the test process’s `NODE_OPTIONS`; no production auth bypass or configurable provider endpoint exists. These deterministic tests do not substitute for authorizing your real ChatGPT account.
 
 Unit and integration tests cover OAuth security with genuinely signed local test tokens, terminal stream handling, grounding validation, transaction rollback, deduplication, independent scheduling, and backup corruption/referential checks. The repository contains no seeded learning records or test authentication bypass.
 
@@ -126,8 +126,15 @@ The server console emits structured `margin.ai.failure` records containing only 
 - `src/app/api`: Node.js backend with bounded input validation and same-origin/loopback enforcement.
 - `src/lib/auth.ts`: protected credential vault, OAuth lifecycle, account-specific catalogs, provider errors.
 - `src/lib/ai.ts`: streamed Responses client, level-aware tutoring tasks, JSON and evidence validation, persistent caching.
+- `src/lib/article-analysis.ts`: background analysis leases, source grounding, compact learner profiles, feedback and transactional collection.
+- `src/lib/ai-runtime.ts`: shared generation, independent cancellation, two-request inference queue and usage-limit pause.
+- `src/lib/client-state.ts`: targeted updates after learning actions, without full-library refetches.
 - `src/lib/db.ts`: PGlite/`pg` adapter and versioned initial SQL migration.
 - `src/lib/store.ts`, `scheduler.ts`, `backup.ts`: learning persistence, independent review schedules, transactional backups.
 - `src/components`: shared task-focused UI. `DESIGN.md` and `PRODUCT.md` record product and design decisions.
 
 AI results are validated for shape, source quotations, exercise counts, option consistency, and valid saved-item references. Semantic accuracy still benefits from human judgement. Invalid or incomplete generated output is not saved as a usable lesson; useful validated output is cached to reduce repeated requests.
+
+Article analysis and feedback are included in portable backups; earlier version-1 backups remain importable. Completed analysis is keyed to the exact article body, so title, progress, profile and model changes do not spend another request on the same reading. New analysis uses the current learner profile. Failed requests stay paused until a deliberate retry; interrupted jobs have an expiring lease. Completed suggestions remain available without a ChatGPT connection. Definitions default to one short meaning and one example; **Explain more** requests a separately cached, optional explanation. Existing saved explanations are preserved.
+
+See [the AI performance audit](docs/ai-performance.md) for measured workflows, cache behaviour and reproduction commands.

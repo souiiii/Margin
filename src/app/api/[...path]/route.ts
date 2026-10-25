@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { guard, bodyJson } from "@/lib/security";
@@ -16,7 +16,14 @@ import { articleInput, itemInput, settingsSchema } from "@/lib/schemas";
 import { exportBackup, importBackup } from "@/lib/backup";
 import { AppError, errorPayload } from "@/lib/errors";
 import { normalizeTerm } from "@/lib/scheduler";
-import type { LanguageItem } from "@/lib/types";
+import type { LanguageItem, Article, Annotation } from "@/lib/types";
+import {
+  startAnalysis,
+  readAnalysis,
+  suggestionFeedback,
+  collectSuggestion,
+} from "@/lib/article-analysis";
+import { resumePlan } from "@/lib/ai-runtime";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 async function handle(
@@ -26,7 +33,7 @@ async function handle(
   try {
     guard(req);
     const { path } = await ctx.params;
-    const [resource, id] = path;
+    const [resource, id, operation] = path;
     const data = () =>
       bodyJson(req, resource === "backup" ? 260_000_000 : 1_000_000);
     const response = (value: unknown, status = 200) =>
@@ -58,25 +65,65 @@ async function handle(
       );
     }
     if (resource === "settings" && req.method === "PATCH") {
-      await saveSettings(settingsSchema.parse(await data()));
+      const settings = settingsSchema.parse(await data());
+      await saveSettings(settings);
+      return response(settings);
+    }
+    if (resource === "ai-resume" && req.method === "POST") {
+      resumePlan();
       return response({ ok: true });
     }
     if (resource === "articles") {
       if (!id && req.method === "POST") {
         const a = articleInput.parse(await data());
-        return response(
-          (
-            await rows(
-              "INSERT INTO articles(id,title,body,author,source_url) VALUES($1,$2,$3,$4,$5) RETURNING *",
-              [randomUUID(), a.title, a.body, a.author, a.source_url],
-            )
-          )[0],
-          201,
-        );
+        const article = (
+          await rows<Article>(
+            "INSERT INTO articles(id,title,body,author,source_url) VALUES($1,$2,$3,$4,$5) RETURNING *",
+            [randomUUID(), a.title, a.body, a.author, a.source_url],
+          )
+        )[0];
+        await startAnalysis(article.id as string, (job) => after(job));
+        return response(article, 201);
       }
       if (id) {
         z.uuid().parse(id);
         const article = await requireArticle(id);
+        if (operation === "analysis") {
+          if (req.method === "GET") return response(await readAnalysis(id));
+          if (req.method === "POST") {
+            const { retry } = z
+              .object({ retry: z.boolean().default(false) })
+              .parse(await data());
+            return response(
+              await startAnalysis(id, (job) => after(job), retry),
+            );
+          }
+        }
+        if (
+          (operation === "feedback" || operation === "collect") &&
+          req.method === "POST"
+        ) {
+          const input = z
+            .object({
+              start: z.number().int().min(0),
+              hash: z.string().length(64),
+              feedback: z.enum(["known", "unhelpful"]).optional(),
+            })
+            .parse(await data());
+          if (operation === "collect")
+            return response(
+              await collectSuggestion(id, input.start, input.hash),
+            );
+          if (!input.feedback) throw new AppError("Choose a feedback option.");
+          return response(
+            await suggestionFeedback(
+              id,
+              input.start,
+              input.hash,
+              input.feedback,
+            ),
+          );
+        }
         if (req.method === "PATCH") {
           const body = z
             .object({
@@ -89,24 +136,41 @@ async function handle(
             })
             .strict()
             .parse(await data());
-          if (body.body !== undefined && body.body !== article.body) {
-            const count = await one<{ count: number }>(
-              "SELECT ((SELECT count(*) FROM annotations WHERE article_id=$1) + (SELECT count(*) FROM practice_sets WHERE source_article_id=$1))::int as count",
+          const contentChanged = await (
+            await getDb()
+          ).transaction(async (db) => {
+            const current = await one<Article>(
+              "SELECT * FROM articles WHERE id=$1 FOR UPDATE",
               [id],
+              db,
             );
-            if (count?.count)
-              throw new AppError(
-                "This passage has saved highlights or questions. Add a revised reading to preserve their original context.",
-                409,
-                "has_saved_context",
+            if (!current)
+              throw new AppError("This reading no longer exists.", 404);
+            const changed =
+              body.body !== undefined && body.body !== current.body;
+            if (changed) {
+              const count = await one<{ count: number }>(
+                "SELECT ((SELECT count(*) FROM annotations WHERE article_id=$1) + (SELECT count(*) FROM practice_sets WHERE source_article_id=$1))::int as count",
+                [id],
+                db,
               );
-          }
-          const entries = Object.entries(body);
-          if (entries.length)
-            await rows(
-              `UPDATE articles SET ${entries.map(([k], i) => `${k}=$${i + 2}`).join(",")},updated_at=now() WHERE id=$1`,
-              [id, ...entries.map((e) => e[1])],
-            );
+              if (count?.count)
+                throw new AppError(
+                  "This passage has saved highlights or questions. Add a revised reading to preserve their original context.",
+                  409,
+                  "has_saved_context",
+                );
+            }
+            const entries = Object.entries(body);
+            if (entries.length)
+              await rows(
+                `UPDATE articles SET ${entries.map(([k], i) => `${k}=$${i + 2}`).join(",")},updated_at=now() WHERE id=$1`,
+                [id, ...entries.map((e) => e[1])],
+                db,
+              );
+            return changed;
+          });
+          if (contentChanged) await startAnalysis(id, (job) => after(job));
           return response(await requireArticle(id));
         }
         if (req.method === "DELETE") {
@@ -116,8 +180,19 @@ async function handle(
       }
     }
     if (resource === "items") {
-      if (!id && req.method === "POST")
-        return response(await addItem(await data()), 201);
+      if (!id && req.method === "POST") {
+        const result = await addItem(await data());
+        return response(
+          {
+            ...result,
+            reviewStates: await rows(
+              "SELECT * FROM review_states WHERE item_id=$1",
+              [result.item.id],
+            ),
+          },
+          201,
+        );
+      }
       if (id) {
         z.uuid().parse(id);
         await requireItem(id);
@@ -185,30 +260,59 @@ async function handle(
             item_id: z.uuid().nullable().default(null),
           })
           .parse(await data());
-        const article = await requireArticle(a.article_id);
-        if (
-          article.body.slice(a.start_offset, a.end_offset) !== a.quote ||
-          a.start_offset >= a.end_offset
-        )
-          throw new AppError(
-            "This selection no longer matches your reading. Select it again.",
-            409,
+        const annotation = await (
+          await getDb()
+        ).transaction(async (db) => {
+          const article = await one<Article>(
+            "SELECT * FROM articles WHERE id=$1 FOR UPDATE",
+            [a.article_id],
+            db,
           );
-        if (a.item_id) await requireItem(a.item_id);
-        const annotation = (
-          await rows(
-            "INSERT INTO annotations(id,article_id,start_offset,end_offset,quote,note,item_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",
-            [
-              randomUUID(),
-              a.article_id,
-              a.start_offset,
-              a.end_offset,
-              a.quote,
-              a.note,
-              a.item_id,
-            ],
+          if (!article)
+            throw new AppError("This reading no longer exists.", 404);
+          if (
+            article.body.slice(a.start_offset, a.end_offset) !== a.quote ||
+            a.start_offset >= a.end_offset
           )
-        )[0];
+            throw new AppError(
+              "This selection no longer matches your reading. Select it again.",
+              409,
+            );
+          if (a.item_id) {
+            if (
+              !(await one("SELECT id FROM items WHERE id=$1", [a.item_id], db))
+            )
+              throw new AppError("This expression no longer exists.", 404);
+            const existing = await one<Annotation>(
+              "SELECT * FROM annotations WHERE article_id=$1 AND start_offset=$2 AND end_offset=$3",
+              [a.article_id, a.start_offset, a.end_offset],
+              db,
+            );
+            if (existing)
+              return (
+                await rows<Annotation>(
+                  "UPDATE annotations SET item_id=COALESCE(item_id,$2) WHERE id=$1 RETURNING *",
+                  [existing.id, a.item_id],
+                  db,
+                )
+              )[0];
+          }
+          return (
+            await rows<Annotation>(
+              "INSERT INTO annotations(id,article_id,start_offset,end_offset,quote,note,item_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+              [
+                randomUUID(),
+                a.article_id,
+                a.start_offset,
+                a.end_offset,
+                a.quote,
+                a.note,
+                a.item_id,
+              ],
+              db,
+            )
+          )[0];
+        });
         return response(annotation, 201);
       }
       if (id) {
@@ -217,11 +321,15 @@ async function handle(
           const b = z
             .object({ note: z.string().max(4000) })
             .parse(await data());
-          await rows("UPDATE annotations SET note=$2 WHERE id=$1", [
-            id,
-            b.note,
-          ]);
-          return response({ ok: true });
+          const updated = (
+            await rows(
+              "UPDATE annotations SET note=$2 WHERE id=$1 RETURNING *",
+              [id, b.note],
+            )
+          )[0];
+          if (!updated)
+            throw new AppError("This highlight no longer exists.", 404);
+          return response(updated);
         }
         if (req.method === "DELETE") {
           await rows("DELETE FROM annotations WHERE id=$1", [id]);

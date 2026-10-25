@@ -10,6 +10,7 @@ import {
   exercisesSchema,
   evaluationSchema,
   dailySchema,
+  savedSuggestionSchema,
 } from "./schemas";
 import { normalizeTerm } from "./scheduler";
 import { AppError } from "./errors";
@@ -95,6 +96,26 @@ const unit = z.object({
   specification: z.json(),
   published: z.boolean(),
 });
+const analysis = z.object({
+  article_id: id,
+  content_hash: z.string().length(64),
+  status: z.enum(["running", "complete", "failed"]),
+  payload: z
+    .object({
+      overview: z.string().max(240),
+      selections: z.array(savedSuggestionSchema).max(8),
+    })
+    .nullable(),
+  error: z.json().nullable(),
+  metrics: z.json(),
+  updated_at: stamp,
+});
+const feedback = z.object({
+  normalized: z.string().min(1).max(200),
+  term: z.string().min(1).max(180),
+  feedback: z.enum(["known", "unhelpful"]),
+  created_at: stamp,
+});
 export const backupData = z.object({
   articles: z.array(article).max(10000),
   items: z.array(item).max(100000),
@@ -106,6 +127,8 @@ export const backupData = z.object({
   ai_cache: z.array(cache).max(100000),
   app_settings: z.array(setting).max(10000),
   curriculum_units: z.array(unit).max(10000),
+  article_analyses: z.array(analysis).max(10000).default([]),
+  language_feedback: z.array(feedback).max(100000).default([]),
 });
 const tables = [
   "articles",
@@ -115,6 +138,8 @@ const tables = [
   "reviews",
   "practice_sets",
   "attempts",
+  "article_analyses",
+  "language_feedback",
   "ai_cache",
   "app_settings",
   "curriculum_units",
@@ -130,6 +155,8 @@ const keys: Record<(typeof tables)[number], string[]> = {
   ai_cache: ["key"],
   app_settings: ["key"],
   curriculum_units: ["id"],
+  article_analyses: ["article_id"],
+  language_feedback: ["normalized"],
 };
 const jsonColumns = new Set([
   "examples",
@@ -141,6 +168,8 @@ const jsonColumns = new Set([
   "item_ids",
   "value",
   "specification",
+  "error",
+  "metrics",
 ]);
 export const checksum = (data: unknown) =>
   createHash("sha256").update(JSON.stringify(data)).digest("hex");
@@ -196,6 +225,23 @@ export function validateBackup(raw: unknown) {
   const articles = new Map(data.articles.map((a) => [a.id, a]));
   const items = new Set(data.items.map((i) => i.id));
   const sets = new Map(data.practice_sets.map((s) => [s.id, s]));
+  for (const analysis of data.article_analyses) {
+    const source = articles.get(analysis.article_id);
+    if (
+      !source ||
+      createHash("sha256").update(source.body).digest("hex") !==
+        analysis.content_hash ||
+      analysis.payload?.selections.some(
+        (s) =>
+          source.body.slice(s.start_offset, s.end_offset) !== s.term ||
+          !source.body.includes(s.quote),
+      )
+    )
+      throw new AppError("An analysis does not match its source reading.");
+  }
+  for (const f of data.language_feedback)
+    if (f.normalized !== normalizeTerm(f.term))
+      throw new AppError("A feedback search key does not match its term.");
   if (new Set(data.items.map((i) => i.normalized)).size !== data.items.length)
     throw new AppError("The backup has duplicate expressions.");
   for (const a of data.annotations) {
@@ -302,7 +348,9 @@ export async function importBackup(raw: unknown, mode: "merge" | "replace") {
           .map((c) => `${c}=excluded.${c}`)
           .join(",");
         const values = columns.map((c) =>
-          jsonColumns.has(c) && record[c] !== null
+          jsonColumns.has(c) &&
+          !(table === "language_feedback" && c === "feedback") &&
+          record[c] !== null
             ? json(record[c])
             : record[c],
         );
