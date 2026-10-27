@@ -1,6 +1,6 @@
 "use client";
 import { useMargin } from "./context";
-import { Empty, Button, Tag } from "./ui";
+import { Empty, Button, Tag, PageHeader } from "./ui";
 import { ArrowRight, TrendingUp, RotateCcw, BookOpen } from "lucide-react";
 import { localDate } from "@/lib/client";
 import type { Skill } from "@/lib/types";
@@ -36,9 +36,12 @@ export function Progress() {
     .slice(0, 8);
   return (
     <div className="page progress-page">
-      <div className="page-heading">
-        <h1>Your English, unfolding</h1>
-      </div>
+      <PageHeader
+        index="05"
+        label="A record of your work"
+        title="Your English, unfolding"
+        description="Small, steady steps. A clearer picture of what you’re learning."
+      />
       {!data.attempts.length && !data.reviews.length ? (
         <Empty
           symbol={<TrendingUp size={30} />}
@@ -66,6 +69,9 @@ export function Progress() {
                   className={`activity-day level-${Math.min(3, Math.ceil(d.count / 4))}`}
                   title={`${d.date.toLocaleDateString()}: ${d.count} answers and reviews`}
                 >
+                  <span className="activity-count" aria-hidden="true">
+                    {d.count || "·"}
+                  </span>
                   <span className="sr-only">
                     {d.day}: {d.count} answers and reviews
                   </span>
@@ -83,7 +89,9 @@ export function Progress() {
             </div>
           </section>
           <section className="retention-insight">
-            <h2>Knowing it. Owning it.</h2>
+            <h2>
+              Knowing it. <span className="display-muted">Owning it.</span>
+            </h2>
             <p>
               A meaning you recognise and an expression you use are two
               different kinds of progress.

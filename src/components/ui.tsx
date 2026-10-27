@@ -1,11 +1,71 @@
 "use client";
 import {
   useEffect,
+  useId,
   useRef,
   type ReactNode,
   type ButtonHTMLAttributes,
 } from "react";
 import { ArrowRight, Check, LoaderCircle, X, AlertCircle } from "lucide-react";
+export function Brand() {
+  return (
+    <>
+      <svg
+        className="brand-mark"
+        width="28"
+        height="30"
+        viewBox="0 0 28 30"
+        fill="none"
+        aria-hidden="true"
+      >
+        <path
+          d="M5 3v24M11 3v24M17 3h7v24h-7"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
+        <path d="M17 11h7" stroke="var(--blue)" strokeWidth="3" />
+      </svg>
+      <span className="brand-name">
+        margin<span className="brand-period">.</span>
+      </span>
+    </>
+  );
+}
+
+export function PageHeader({
+  index,
+  label,
+  title,
+  description,
+  action,
+  headingLevel = 1,
+}: {
+  index: string;
+  label: string;
+  title: string;
+  description?: string;
+  action?: ReactNode;
+  headingLevel?: 1 | 2;
+}) {
+  const Heading = headingLevel === 1 ? "h1" : "h2";
+  return (
+    <header className="page-header">
+      <div className="sheet-label">
+        <span>
+          {index} / {label}
+        </span>
+      </div>
+      <div className="page-heading">
+        <div>
+          <Heading className="page-title">{title}</Heading>
+          {description && <p className="page-description">{description}</p>}
+        </div>
+        {action}
+      </div>
+    </header>
+  );
+}
+
 export function Button({
   children,
   variant = "primary",
@@ -95,6 +155,7 @@ export function Dialog({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   useEffect(() => {
     const dialog = ref.current;
     if (dialog && !dialog.open) dialog.showModal();
@@ -106,6 +167,7 @@ export function Dialog({
     <dialog
       ref={ref}
       className={`dialog ${wide ? "wide" : ""}`}
+      aria-labelledby={titleId}
       onCancel={onClose}
       onClick={(e) => {
         if (e.target === ref.current) {
@@ -121,7 +183,7 @@ export function Dialog({
       }}
     >
       <div className="dialog-heading">
-        <h2>{title}</h2>
+        <h2 id={titleId}>{title}</h2>
         <IconButton label="Close dialog" onClick={onClose}>
           <X size={19} />
         </IconButton>
@@ -172,30 +234,6 @@ export function Confirm({
 }
 export function Tag({ children }: { children: ReactNode }) {
   return <span className="tag">{children}</span>;
-}
-export function Wave({ className = "" }: { className?: string }) {
-  return (
-    <svg
-      className={`wave ${className}`}
-      width="160"
-      height="12"
-      viewBox="0 0 160 12"
-      aria-hidden="true"
-    >
-      <path
-        d="M0 4 Q10 -2 20 4 T40 4 T60 4 T80 4 T100 4 T120 4 T140 4 T160 4"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      <path
-        d="M0 9 Q10 3 20 9 T40 9 T60 9 T80 9 T100 9 T120 9 T140 9 T160 9"
-        fill="none"
-        stroke="var(--peach-strong)"
-        strokeWidth="2"
-      />
-    </svg>
-  );
 }
 export function Saved({
   saved,

@@ -22,7 +22,13 @@ test("the notes panel scrolls independently and retains the collected explanatio
   const panel = page.getByRole("complementary", { name: "Reading notes" });
   const workspace = page.locator(".workspace-scroll");
   const before = await panel.boundingBox();
-  expect(Math.abs(before!.height - 480)).toBeLessThan(2);
+  const availableHeight = await page.evaluate(
+    () =>
+      window.innerHeight -
+      document.querySelector(".topbar")!.getBoundingClientRect().height -
+      document.querySelector(".reader-toolbar")!.getBoundingClientRect().height,
+  );
+  expect(Math.abs(before!.height - availableHeight)).toBeLessThan(2);
   await panel.hover({ position: { x: 100, y: 150 } });
   await page.mouse.wheel(0, 450);
   await expect

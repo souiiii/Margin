@@ -28,7 +28,7 @@ Official Sign in with ChatGPT, OAuth-based Responses API, account-specific model
 
 ## Brand Commitments
 
-Name: Margin. Required visual references supplied in chat, especially Mochi. Quiet typography, teal and peach, whitespace, minimal copy. Reader-inspired focused reading. Avoid generic SaaS dashboards and filler. The user explicitly requires Anonymous Pro as the signature typeface, Literata for long-form reading, and Inter for dense interface text; no additional font families. Balance playful character with daily-use readability and restraint.
+Name: Margin. The user-supplied [design.md](design.md) is the visual source of truth. Use a white editorial canvas, near-black ink, restrained blue accents, Plus Jakarta Sans for headings and interface text, and JetBrains Mono for annotations and data. Fine rules, meaningful view indexes, restrained controls, and task-focused layouts connect the screens. Apply only the components needed for reading, collecting, practising, reviewing, and settings. Keep light and dark themes, responsive layouts, readable text, keyboard access, and reduced motion consistent with this system.
 
 ## Evidence on Hand
 

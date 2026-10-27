@@ -21,7 +21,15 @@ import {
   Pencil,
 } from "lucide-react";
 import { useMargin } from "./context";
-import { Button, IconButton, Empty, ErrorBox, Tag, Confirm, Wave } from "./ui";
+import {
+  Button,
+  IconButton,
+  Empty,
+  ErrorBox,
+  Tag,
+  Confirm,
+  PageHeader,
+} from "./ui";
 import { ExerciseCard } from "./exercise";
 import { api, words, relativeDate } from "@/lib/client";
 import { normalizeTerm } from "@/lib/scheduler";
@@ -56,23 +64,30 @@ export function Readings({
   );
   return (
     <div className="page">
-      <div className="page-heading">
-        <h1>Readings</h1>
-        <Button onClick={() => navigate("readings", { compose: "1" })}>
-          <Plus size={16} />
-          Add reading
-        </Button>
-      </div>
+      <PageHeader
+        index="02"
+        label="Your library"
+        title="Readings"
+        description="Follow your curiosity. Keep the language that stays with you."
+        action={
+          <Button onClick={() => navigate("readings", { compose: "1" })}>
+            <Plus size={16} />
+            Add reading
+          </Button>
+        }
+      />
       <div className="list-toolbar">
         <div className="tabs">
           <button
             className={!archived ? "active" : ""}
+            aria-pressed={!archived}
             onClick={() => setArchived(false)}
           >
             Your shelf
           </button>
           <button
             className={archived ? "active" : ""}
+            aria-pressed={archived}
             onClick={() => setArchived(true)}
           >
             Archive
@@ -200,9 +215,12 @@ function ReadingEditor({
         <ArrowLeft size={16} />
         Readings
       </button>
-      <div className="page-heading">
-        <h1>{article ? "Edit reading" : "A new reading"}</h1>
-      </div>
+      <PageHeader
+        index="02"
+        label="Reading editor"
+        title={article ? "Edit reading" : "A new reading"}
+        description="Something worth reading is something worth learning from."
+      />
       <form onSubmit={save} className="reading-composer">
         {error && <ErrorBox message={error} />}
         <label>
@@ -720,6 +738,9 @@ function Reader({ article }: { article: Article }) {
       <div className="reading-column">
         {error && <ErrorBox message={error} onClose={() => setError("")} />}
         <header className="article-header">
+          <div className="sheet-label">
+            <span>02 / Reading room</span>
+          </div>
           <h1>{article.title}</h1>
           <div className="article-meta">
             {article.author && <span>{article.author}</span>}
@@ -732,7 +753,6 @@ function Reader({ article }: { article: Article }) {
               </a>
             )}
           </div>
-          <Wave />
         </header>
         <div
           className="article-body"
@@ -896,12 +916,14 @@ function Reader({ article }: { article: Article }) {
           <div className="rail-tabs tabs">
             <button
               className={tab === "language" ? "active" : ""}
+              aria-pressed={tab === "language"}
               onClick={() => setTab("language")}
             >
               Language
             </button>
             <button
               className={tab === "notes" ? "active" : ""}
+              aria-pressed={tab === "notes"}
               onClick={() => setTab("notes")}
             >
               Notes{" "}

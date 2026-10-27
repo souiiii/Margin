@@ -11,9 +11,9 @@ import {
   PencilLine,
 } from "lucide-react";
 import { useMargin } from "./context";
-import { Button, Wave, Tag, ErrorBox } from "./ui";
+import { Button, Tag, ErrorBox } from "./ui";
 import { localDate, relativeDate, words } from "@/lib/client";
-import type { Daily, LanguageItem } from "@/lib/types";
+import type { Daily } from "@/lib/types";
 export function Today() {
   const { data, navigate, run, busy, mutate, notify } = useMargin();
   const [error, setError] = useState("");
@@ -42,84 +42,113 @@ export function Today() {
   }
   return (
     <div className="page today-page">
-      <div className="page-heading">
+      <header className="today-header">
+        <div className="sheet-label">
+          <span>01 / Today</span>
+          <span className="date-label">
+            {new Date().toLocaleDateString(undefined, {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            })}
+          </span>
+        </div>
         <h1>
-          Today
-          <span className="peach-dot" />
+          Your English.{" "}
+          <span className="display-muted">A little more yours.</span>
         </h1>
-        <span className="date-label">
-          {new Date().toLocaleDateString(undefined, {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-          })}
-        </span>
-      </div>
+        <p>A place to read, notice, and find your own words.</p>
+      </header>
       {error && <ErrorBox message={error} onClose={() => setError("")} />}
-      <section className="next-step">
-        <div className="next-copy">
-          <div className="section-title">
-            <h2>
-              {due.length
-                ? "A few words to revisit"
-                : current
-                  ? "Back to your reading"
-                  : "Start with a reading"}
-            </h2>
-            <Wave />
+      <div className="today-overview">
+        <section className="next-step">
+          <div className="next-copy">
+            <span className="eyebrow">
+              <span className="status-mark" /> Your next step
+            </span>
+            <div className="section-title">
+              <h2>
+                {due.length
+                  ? "A few words to revisit"
+                  : current
+                    ? "Back to your reading"
+                    : "Start with a reading"}
+              </h2>
+            </div>
+            {due.length ? (
+              <>
+                <p>
+                  {new Set(due.map((s) => s.item_id)).size}{" "}
+                  {new Set(due.map((s) => s.item_id)).size === 1
+                    ? "expression is"
+                    : "expressions are"}{" "}
+                  ready to return to.
+                </p>
+                <Button
+                  onClick={() => navigate("practice", { mode: "review" })}
+                >
+                  Begin review <ArrowRight size={16} />
+                </Button>
+              </>
+            ) : current ? (
+              <>
+                <h3 className="reading-next-title">{current.title}</h3>
+                <p>
+                  {current.author || `${words(current.body)} words`} ·{" "}
+                  {Math.max(1, Math.ceil(words(current.body) / 220))} min read
+                </p>
+                <Button
+                  onClick={() => navigate("readings", { article: current.id })}
+                >
+                  {current.progress > 0 ? "Continue reading" : "Open reading"}
+                  <ArrowRight size={16} />
+                </Button>
+              </>
+            ) : (
+              <>
+                <p>
+                  Add an article or passage you’re curious about.
+                  <br />
+                  We’ll find the language worth keeping.
+                </p>
+                <Button onClick={() => navigate("readings", { compose: "1" })}>
+                  <Plus size={16} />
+                  Add a reading
+                </Button>
+              </>
+            )}
           </div>
-          {due.length ? (
-            <>
-              <p>
-                {new Set(due.map((s) => s.item_id)).size}{" "}
-                {new Set(due.map((s) => s.item_id)).size === 1
-                  ? "expression is"
-                  : "expressions are"}{" "}
-                ready to return to.
-              </p>
-              <Button onClick={() => navigate("practice", { mode: "review" })}>
-                Begin review <ArrowRight size={16} />
-              </Button>
-            </>
-          ) : current ? (
-            <>
-              <h3 className="reading-next-title">{current.title}</h3>
-              <p>
-                {current.author || `${words(current.body)} words`} ·{" "}
-                {Math.max(1, Math.ceil(words(current.body) / 220))} min read
-              </p>
-              <Button
-                onClick={() => navigate("readings", { article: current.id })}
-              >
-                {current.progress > 0 ? "Continue reading" : "Open reading"}
-                <ArrowRight size={16} />
-              </Button>
-            </>
-          ) : (
-            <>
-              <p>
-                Add an article or passage you’re curious about.
-                <br />
-                We’ll find the language worth keeping.
-              </p>
-              <Button onClick={() => navigate("readings", { compose: "1" })}>
-                <Plus size={16} />
-                Add a reading
-              </Button>
-            </>
-          )}
-        </div>
-        <div className="paper-motif" aria-hidden="true">
-          <div className="motif-page">
-            <span />
-            <span />
-            <span className="marked" />
-            <span />
-            <span />
-          </div>
-          <div className="motif-bookmark" />
-        </div>
-      </section>
+        </section>
+        <aside
+          className="library-summary"
+          aria-label="Your library at a glance"
+        >
+          <span className="eyebrow">Your library, at a glance</span>
+          <button
+            className="library-metric"
+            onClick={() => navigate("readings")}
+          >
+            <strong>{String(readings.length).padStart(2, "0")}</strong>
+            <span>Readings</span>
+            <ArrowRight size={16} />
+          </button>
+          <button className="library-metric" onClick={() => navigate("bank")}>
+            <strong>{String(data.items.length).padStart(2, "0")}</strong>
+            <span>Expressions collected</span>
+            <ArrowRight size={16} />
+          </button>
+          <button
+            className="library-metric"
+            onClick={() => navigate("practice", { mode: "review" })}
+          >
+            <strong>
+              {String(new Set(due.map((s) => s.item_id)).size).padStart(2, "0")}
+            </strong>
+            <span>Expressions to revisit</span>
+            <ArrowRight size={16} />
+          </button>
+        </aside>
+      </div>
       {!active && (
         <div className="connection-note">
           <Sparkles size={18} />
@@ -133,6 +162,7 @@ export function Today() {
         </div>
       )}
       <section className="daily-section">
+        <span className="eyebrow">Notice something new</span>
         <div className="section-title">
           <h2>A little discovery</h2>
           {daily && <span className="quiet-label">Made for today</span>}
@@ -207,6 +237,7 @@ export function Today() {
       </section>
       <div className="today-bottom">
         <section>
+          <span className="eyebrow">On your shelf</span>
           <div className="section-title">
             <h2>Your readings</h2>
             <button
@@ -251,6 +282,7 @@ export function Today() {
           )}
         </section>
         <section>
+          <span className="eyebrow">From your collection</span>
           <div className="section-title">
             <h2>Worth another look</h2>
             <Bookmark size={17} />

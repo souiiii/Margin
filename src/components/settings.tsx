@@ -14,7 +14,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useMargin } from "./context";
-import { Button, Tag, ErrorBox, Dialog } from "./ui";
+import { Button, Tag, ErrorBox, Dialog, PageHeader } from "./ui";
 import {
   reasoningEfforts,
   effortLabels,
@@ -150,9 +150,12 @@ export function Settings() {
   }
   return (
     <div className="page settings-page">
-      <div className="page-heading">
-        <h1>Make yourself at home</h1>
-      </div>
+      <PageHeader
+        index="06"
+        label="Your preferences"
+        title="Make yourself at home"
+        description="Your tutor, your pace, your space to learn."
+      />
       {error && <ErrorBox message={error} onClose={() => setError("")} />}
       <section className="settings-section">
         <div className="settings-section-heading">

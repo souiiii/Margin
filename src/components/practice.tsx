@@ -14,7 +14,15 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { useMargin } from "./context";
-import { Button, Empty, Tag, ErrorBox, IconButton, Wave, Confirm } from "./ui";
+import {
+  Button,
+  Empty,
+  Tag,
+  ErrorBox,
+  IconButton,
+  Confirm,
+  PageHeader,
+} from "./ui";
 import { ExerciseCard, Feedback } from "./exercise";
 import { relativeDate } from "@/lib/client";
 import type {
@@ -62,12 +70,16 @@ export function Practice({
     completed = sets.filter((s) => !!s.completed_at);
   return (
     <div className="page practice-page">
-      <div className="page-heading">
-        <h1>Practice</h1>
-        <Tag>{data.settings.level}</Tag>
-      </div>
+      <PageHeader
+        index="04"
+        label="Put it into words"
+        title="Practice"
+        description="A little recall. A little intention. Language that becomes yours."
+        action={<Tag>Level {data.settings.level}</Tag>}
+      />
       <div className="practice-start">
         <section className="review-invitation">
+          <span className="eyebrow">Recall & remember</span>
           <div className="section-title">
             <h2>Bring it back</h2>
             <RotateCcw size={22} />
@@ -86,6 +98,7 @@ export function Practice({
           </Button>
         </section>
         <section className="practice-generator">
+          <span className="eyebrow">Make it a habit</span>
           <h2>A little deliberate practice</h2>
           <p>Built around your language and the things you’re working on.</p>
           <div className="practice-controls">
@@ -237,7 +250,6 @@ function StudySet({ set }: { set: PracticeSet }) {
           </div>
           <h2>A little more yours.</h2>
           <p>You’ve worked through {set.payload.exercises.length} exercises.</p>
-          <Wave />
           <div className="session-takeaways">
             {attempts
               .filter((a) => a.evaluation.misconception)
@@ -372,15 +384,20 @@ function ReviewSession() {
         <ArrowLeft size={16} />
         Practice
       </button>
-      <div className="page-heading">
-        <h1>Bring it back</h1>
-        <span className="quiet-label">
-          {done} / {total}
-        </span>
-      </div>
+      <PageHeader
+        index="04"
+        label="Spaced review"
+        title="Bring it back"
+        action={
+          <span className="quiet-label">
+            {done} / {total}
+          </span>
+        }
+      />
       <div className="review-mode tabs">
         <button
           className={mode === "recognition" ? "active" : ""}
+          aria-pressed={mode === "recognition"}
           onClick={() => {
             setMode("recognition");
             setRevealed(false);
@@ -395,6 +412,7 @@ function ReviewSession() {
         </button>
         <button
           className={mode === "production" ? "active" : ""}
+          aria-pressed={mode === "production"}
           onClick={() => {
             setMode("production");
             setRevealed(false);

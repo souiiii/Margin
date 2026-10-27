@@ -26,7 +26,10 @@ test("complete local learning and recovery workflow", async ({
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Today", exact: true }),
+    page.getByRole("heading", {
+      name: "Your English. A little more yours.",
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Start with a reading" }),
@@ -144,7 +147,10 @@ test("complete local learning and recovery workflow", async ({
   await page.getByRole("button", { name: "Open navigation" }).click();
   await page.getByRole("button", { name: "Today", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Today", exact: true }),
+    page.getByRole("heading", {
+      name: "Your English. A little more yours.",
+      exact: true,
+    }),
   ).toBeVisible();
   await capture(page, "today-mobile");
   await page.locator(".compact-readings").getByRole("button").first().click();
@@ -315,12 +321,10 @@ test("persisted practice, comprehension and responsive study layouts", async ({
   await expect(
     page.getByRole("textbox", { name: "Your answer" }),
   ).toBeVisible();
-  await page
-    .locator(".comprehension-section")
-    .screenshot({
-      path: ".impeccable/review/comprehension-mobile.png",
-      animations: "disabled",
-    });
+  await page.locator(".comprehension-section").screenshot({
+    path: ".impeccable/review/comprehension-mobile.png",
+    animations: "disabled",
+  });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/?view=progress");
   await expect(

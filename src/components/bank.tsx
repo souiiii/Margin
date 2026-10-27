@@ -22,6 +22,7 @@ import {
   Tag,
   IconButton,
   Confirm,
+  PageHeader,
 } from "./ui";
 import type { LanguageItem, ItemKind } from "@/lib/types";
 import { normalizeTerm } from "@/lib/scheduler";
@@ -48,13 +49,19 @@ export function Bank({
   return (
     <div className={`bank-layout ${item ? "has-detail" : ""}`}>
       <section className="bank-main page">
-        <div className="page-heading">
-          <h1>Language bank</h1>
-          <Button onClick={() => navigate("bank", { compose: "1" })}>
-            <Plus size={16} />
-            Add expression
-          </Button>
-        </div>
+        <PageHeader
+          index="03"
+          label="Your collection"
+          title="Language bank"
+          headingLevel={item ? 2 : 1}
+          description="Words worth keeping. Expressions to make your own."
+          action={
+            <Button onClick={() => navigate("bank", { compose: "1" })}>
+              <Plus size={16} />
+              Add expression
+            </Button>
+          }
+        />
         <label className="search-field bank-search">
           <Search size={17} />
           <input
@@ -69,6 +76,7 @@ export function Bank({
             <button
               key={f}
               className={filter === f ? "active" : ""}
+              aria-pressed={filter === f}
               onClick={() => setFilter(f)}
             >
               {f === "all"
@@ -347,7 +355,7 @@ function ItemDetail({ item }: { item: LanguageItem }) {
       {error && <ErrorBox message={error} onClose={() => setError("")} />}
       <Tag>{item.kind}</Tag>
       <div className="item-term">
-        <h2>{item.term}</h2>
+        <h1>{item.term}</h1>
         <IconButton
           label={`Hear ${item.term}`}
           onClick={() => {

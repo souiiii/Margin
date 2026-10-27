@@ -12,9 +12,7 @@ import {
   Menu,
   X,
   ArrowRight,
-  Command,
   ChevronDown,
-  Sparkles,
   Check,
 } from "lucide-react";
 import { api, localDate } from "@/lib/client";
@@ -26,7 +24,7 @@ import { Bank } from "./bank";
 import { Practice } from "./practice";
 import { Progress } from "./progress";
 import { Settings } from "./settings";
-import { Button, Dialog, IconButton, ErrorBox } from "./ui";
+import { Brand, Button, Dialog, IconButton, ErrorBox } from "./ui";
 const nav = [
   { id: "today", label: "Today", icon: Sun },
   { id: "readings", label: "Readings", icon: BookOpen },
@@ -45,8 +43,7 @@ function Loading() {
   return (
     <div className="boot-screen">
       <div className="brand">
-        margin
-        <span />
+        <Brand />
       </div>
       <div className="boot-lines">
         <span />
@@ -83,8 +80,7 @@ function Boot() {
     return (
       <div className="boot-screen">
         <div className="brand">
-          margin
-          <span />
+          <Brand />
         </div>
         <ErrorBox message={error} />
         <Button onClick={load}>Try again</Button>
@@ -104,6 +100,7 @@ function Shell() {
     [search, setSearch] = useState(false);
   const view = params.get("view") || "today";
   const main = useRef<HTMLElement>(null);
+  const sidebar = useRef<HTMLElement>(null);
   const [authMessage, setAuthMessage] = useState("");
   useEffect(() => {
     document.documentElement.dataset.theme = data.settings.theme;
@@ -112,6 +109,43 @@ function Shell() {
     setMobile(false);
     main.current?.scrollTo({ top: 0 });
   }, [params]);
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 768px)");
+    const closeOnDesktop = () => {
+      if (desktop.matches) setMobile(false);
+    };
+    desktop.addEventListener("change", closeOnDesktop);
+    return () => desktop.removeEventListener("change", closeOnDesktop);
+  }, []);
+  useEffect(() => {
+    if (!mobile) return;
+    const trigger = document.activeElement as HTMLElement | null;
+    const panel = sidebar.current;
+    const focusFrame = requestAnimationFrame(() => {
+      panel?.querySelector<HTMLButtonElement>(".mobile-close")?.focus();
+    });
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || !panel) return;
+      const controls = panel.querySelectorAll<HTMLButtonElement>(
+        "button:not(:disabled)",
+      );
+      const first = controls[0],
+        last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    panel?.addEventListener("keydown", trapFocus);
+    return () => {
+      cancelAnimationFrame(focusFrame);
+      panel?.removeEventListener("keydown", trapFocus);
+      trigger?.focus();
+    };
+  }, [mobile]);
   useEffect(() => {
     const message = params.get("auth_error");
     if (message)
@@ -158,11 +192,18 @@ function Shell() {
           onClick={() => setMobile(false)}
         />
       )}
-      <aside className={`sidebar ${mobile ? "open" : ""}`}>
+      <aside
+        ref={sidebar}
+        id="main-navigation"
+        className={`sidebar ${mobile ? "open" : ""}`}
+      >
         <div className="sidebar-top">
-          <button className="brand" onClick={() => navigate("today")}>
-            margin
-            <span />
+          <button
+            className="brand"
+            aria-label="Margin home"
+            onClick={() => navigate("today")}
+          >
+            <Brand />
           </button>
           <IconButton
             className="mobile-close"
@@ -177,8 +218,9 @@ function Shell() {
           <span>Find anything</span>
           <kbd>⌘ K</kbd>
         </button>
+        <p className="nav-label">Your workspace</p>
         <nav aria-label="Main navigation">
-          {nav.map((n) => (
+          {nav.map((n, index) => (
             <button
               key={n.id}
               className={`nav-item ${view === n.id ? "active" : ""}`}
@@ -188,23 +230,30 @@ function Shell() {
             >
               <n.icon size={19} />
               <span>{n.label}</span>
-              {n.id === "practice" && due > 0 && (
-                <span className="nav-count">{due}</span>
-              )}
+              <span
+                className={`nav-index ${n.id === "practice" && due > 0 ? "has-due" : ""}`}
+                aria-hidden="true"
+              >
+                {n.id === "practice" && due > 0 ? due : `0${index + 1}`}
+              </span>
             </button>
           ))}
         </nav>
         <div className="sidebar-bottom">
           <button
             className={`nav-item ${view === "settings" ? "active" : ""}`}
+            aria-current={view === "settings" ? "page" : undefined}
             onClick={() => navigate("settings")}
           >
             <SettingsIcon size={19} />
             <span>Settings</span>
+            <span className="nav-index" aria-hidden="true">
+              06
+            </span>
           </button>
           <div className="local-status">
             <span />
-            At home on this Mac
+            Personal learning space
           </div>
         </div>
       </aside>
@@ -214,10 +263,16 @@ function Shell() {
             <IconButton
               className="menu-button"
               label="Open navigation"
+              aria-expanded={mobile}
+              aria-controls="main-navigation"
               onClick={() => setMobile(true)}
             >
               <Menu size={21} />
             </IconButton>
+            <span className="breadcrumb-root">Workspace</span>
+            <span className="breadcrumb-divider" aria-hidden="true">
+              /
+            </span>
             <span>{title}</span>
           </div>
           <div className="topbar-right">

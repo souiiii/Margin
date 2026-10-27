@@ -51,7 +51,7 @@ Settings → Your tutor provides independent **Everyday reasoning** (Light / API
 ## A connected learning workflow
 
 1. **Readings:** paste an article or passage; optional author and source URL. No reading material is preloaded. Articles remain plain text, which preserves exact source positions and avoids running pasted HTML.
-2. **Notice language:** saving or opening an unanalyzed article starts analysis in the background. Selective, personalised suggestions appear as dotted teal underlines; your saved highlights remain peach. Open a suggestion for its contextual meaning and one example, or collect it immediately. Mark suggestions **Already known** or **Unhelpful** to guide future selection. You can also select text yourself and choose **Explore** or **Highlight**. Collected expressions retain source context; highlights support editable notes.
+2. **Notice language:** saving or opening an unanalyzed article starts analysis in the background. Selective, personalised suggestions appear as dotted blue underlines; saved highlights have a pale blue fill. Open a suggestion for its contextual meaning and one example, or collect it immediately. Mark suggestions **Already known** or **Unhelpful** to guide future selection. You can also select text yourself and choose **Explore** or **Highlight**. Collected expressions retain source context; highlights support editable notes.
 3. **Between the lines:** generate questions beneath the original reading. Choose difficulty, type, and count; generate more without repeating existing questions. Questions and evaluations must contain exact source evidence before saving.
 4. **Language bank:** search meanings, terms, notes, or collocations; add manually or with AI. Explore usage, register, collocations, related expressions, and source context. Browser speech synthesis can pronounce expressions.
 5. **Practice:** generate grammar, vocabulary, comprehension, sentence, writing, and word-choice tasks. Saved language, recent mistakes, previous questions, and skill performance inform new sets. Open tasks are evaluated with explanations and improved answers; unfinished sessions resume.
@@ -59,7 +59,7 @@ Settings → Your tutor provides independent **Everyday reasoning** (Light / API
 7. **Today:** generate an idiom, related discoveries, and a short writing prompt. Outputs persist for the selected local day. Previously saved language and recent readings are surfaced without fabricated activity.
 8. **Progress:** real activity, answer quality by skill, recorded misunderstandings, and independent recognition/production retention. Seven-day review intervals are a practice signal, not a fluency claim.
 
-Use **⌘K** (Ctrl+K on other platforms) to find readings and expressions. Reading controls change type size; Settings offers daylight/after-hours themes. Anonymous Pro, Literata, and Inter are self-hosted with their OFL licenses.
+Use **⌘K** (Ctrl+K on other platforms) to find readings and expressions. Reading controls change type size; Settings offers daylight/after-hours themes. The interface follows [design.md](design.md), with shared semantic tokens in `src/app/tokens.css`. Plus Jakarta Sans and JetBrains Mono are self-hosted with their OFL licenses.
 
 The **fixed grammar curriculum is intentionally empty**. `curriculum_units` establishes a versioned integration point; no curriculum has been generated or seeded. On-demand grammar practice works independently.
 
@@ -131,7 +131,7 @@ The server console emits structured `margin.ai.failure` records containing only 
 - `src/lib/client-state.ts`: targeted updates after learning actions, without full-library refetches.
 - `src/lib/db.ts`: PGlite/`pg` adapter and versioned initial SQL migration.
 - `src/lib/store.ts`, `scheduler.ts`, `backup.ts`: learning persistence, independent review schedules, transactional backups.
-- `src/components`: shared task-focused UI. `DESIGN.md` and `PRODUCT.md` record product and design decisions.
+- `src/components`: shared task-focused UI. `design.md` and `PRODUCT.md` record product and design decisions.
 
 AI results are validated for shape, source quotations, exercise counts, option consistency, and valid saved-item references. Semantic accuracy still benefits from human judgement. Invalid or incomplete generated output is not saved as a usable lesson; useful validated output is cached to reduce repeated requests.
 
